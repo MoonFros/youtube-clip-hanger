@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -292,8 +292,7 @@ def delete_clip(clip_id: str):
 # ---------------- bookend ---------------------------------------------------------
 
 @router.post("/clips/{clip_id}/bookend")
-async def bookend(clip_id: str, body: Dict[str, Any],
-                  mic: Optional[UploadFile] = File(None)):
+async def bookend(clip_id: str, body: Dict[str, Any]):
     from . import hooks
     from .ingest import job_dir
     from .tts import synthesize
@@ -301,6 +300,29 @@ async def bookend(clip_id: str, body: Dict[str, Any],
     job = _get_job_or_404(clip.job_id)
     style = body.get("style", "auto")
     voice = body.get("voice", clip.bookend.get("voice", "deep"))
+    return _generate_bookend(clip, job, style, voice, hooks, job_dir, synthesize)
+
+
+@router.post("/clips/{clip_id}/bookend/mic")
+async def bookend_mic(clip_id: str, mic: UploadFile = File(...),
+                      style: str = Form("auto"), voice: str = Form("mic")):
+    from . import hooks
+    from .ingest import job_dir
+    from .tts import synthesize
+    clip = _get_clip_or_404(clip_id)
+    job = _get_job_or_404(clip.job_id)
+    mic_path = None
+    d = job_dir(job)
+    intro_wav = d / f"mic_{clip.id}_intro.wav"
+    with open(intro_wav, "wb") as f:
+        shutil.copyfileobj(mic.file, f)
+    mic_path = str(intro_wav)
+    return _generate_bookend(clip, job, style, "mic", hooks, job_dir, synthesize,
+                             mic_path=mic_path)
+
+
+def _generate_bookend(clip, job, style, voice, hooks, job_dir, synthesize,
+                      mic_path: Optional[str] = None) -> Dict[str, Any]:
 
     words = job.transcript.get("words") or []
     sentences = job.transcript.get("sentence_spans") or []
@@ -328,13 +350,9 @@ async def bookend(clip_id: str, body: Dict[str, Any],
                 "url": f"/media/jobs/{job.id}/tts/{out.name}",
                 "duration": r.get("duration"),
             }
-    elif voice == "mic" and mic is not None:
-        intro_wav = d / f"mic_{clip.id}_intro.wav"
-        with open(intro_wav, "wb") as f:
-            shutil.copyfileobj(mic.file, f)
-        tts_audio["intro"] = {"url": f"/media/jobs/{job.id}/tts/{intro_wav.name}",
+    elif voice == "mic" and mic_path is not None:
+        tts_audio["intro"] = {"url": f"/media/jobs/{job.id}/tts/{Path(mic_path).name}",
                               "duration": None}
-        # reuse same note for outro if provided separately is not supported;
         # keep one mic note for the intro, outro stays visual-only
     clip.bookend.update({
         "style": result.get("style", style if style in HOOK_STYLES else "B"),
@@ -515,11 +533,12 @@ def media_stem(job_id: str, layer: str, request: Request):
         import numpy as np
         import wave
         data = np.load(npz)[layer]
-        with open(wav, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(48000)
-            w.writeframes((np.clip(data, -1, 1) * 32767).astype("<i2").tobytes())
+        frames = (np.clip(data, -1, 1) * 32767).astype("<i2").tobytes()
+        with wave.open(str(wav), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(48000)
+            wf.writeframes(frames)
     return _range_response(str(wav), request, "audio/wav")
 
 

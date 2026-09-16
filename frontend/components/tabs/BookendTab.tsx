@@ -76,7 +76,7 @@ export default function BookendTab({
         fd.append("style", be.style);
         fd.append("voice", "mic");
         try {
-          const r = await fetch(`/api/clips/${clip.id}/bookend`, { method: "POST", body: fd });
+          const r = await fetch(`/api/clips/${clip.id}/bookend/mic`, { method: "POST", body: fd });
           if (!r.ok) throw new Error((await r.json()).detail || "Mic upload failed");
           const j = await r.json();
           setTtsUrls(j.tts_audio || {});
