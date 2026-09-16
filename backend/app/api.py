@@ -487,9 +487,12 @@ async def fix_render(clip_id: str, render_id: str, body: Dict[str, Any]):
                                          "fix_options": fix_options})
 
 
-# ---------------- media -------------------------------------------------------------
+# ---------------- media (served at /media/... — no /api prefix) -------------------
 
-@router.get("/media/jobs/{job_id}/preview")
+media_router = APIRouter()
+
+
+@media_router.get("/media/jobs/{job_id}/preview")
 def media_preview(job_id: str, request: Request):
     job = _get_job_or_404(job_id)
     path = job.preview_path or job.source_path
@@ -498,7 +501,7 @@ def media_preview(job_id: str, request: Request):
     return _range_response(path, request, "video/mp4")
 
 
-@router.get("/media/jobs/{job_id}/stems/{layer}")
+@media_router.get("/media/jobs/{job_id}/stems/{layer}")
 def media_stem(job_id: str, layer: str, request: Request):
     job = _get_job_or_404(job_id)
     if layer not in ("dialogue", "music", "sfx"):
@@ -520,7 +523,7 @@ def media_stem(job_id: str, layer: str, request: Request):
     return _range_response(str(wav), request, "audio/wav")
 
 
-@router.get("/media/jobs/{job_id}/tts/{name}")
+@media_router.get("/media/jobs/{job_id}/tts/{name}")
 def media_tts(job_id: str, name: str, request: Request):
     job = _get_job_or_404(job_id)
     safe = Path(name).name
@@ -530,7 +533,7 @@ def media_tts(job_id: str, name: str, request: Request):
     return _range_response(str(p), request, "audio/wav")
 
 
-@router.get("/media/clips/{clip_id}/renders/{render_id}/out")
+@media_router.get("/media/clips/{clip_id}/renders/{render_id}/out")
 def media_output(clip_id: str, render_id: str, request: Request):
     r = STORE.get_render(render_id)
     if r is None or r.clip_id != clip_id or not r.output_path or not os.path.exists(r.output_path):

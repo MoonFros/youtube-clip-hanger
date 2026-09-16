@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import router
+from .api import media_router, router
 from .config import DATA_DIR, JOB_RETENTION_HOURS
 from .store import STORE
 
@@ -53,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(media_router)
 
 
 @app.get("/api/demo/status")

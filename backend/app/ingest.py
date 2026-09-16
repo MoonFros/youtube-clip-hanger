@@ -41,7 +41,7 @@ async def run_job(job_id: str) -> None:
     try:
         for i, stage in enumerate(STAGES):
             set_stage(job, stage, i / len(STAGES))
-            fn = _stage_fns[stage]
+            fn = _STAGE_FNS[stage]
             await asyncio.to_thread(fn, job)
             set_stage(job, stage, (i + 1) / len(STAGES))
         job.status = "ready"
@@ -134,7 +134,9 @@ def _stage_stems(job: Job) -> None:
 
 def _stage_transcript(job: Job) -> None:
     if job.demo and job.transcript.get("status") == "ready":
-        return  # demo ships with ground-truth transcript
+        # demo ships with ground-truth transcript; still run suggestion
+        _suggest(job)
+        return
     job.transcript = transcribe.transcribe_job(job)
     # suggest clips (works with or without transcript)
     _suggest(job)
