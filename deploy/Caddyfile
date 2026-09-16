@@ -1,0 +1,27 @@
+# FairClip — Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+#
+# 1. DNS: point an A record for your domain at the server's IP.
+# 2. Run:  caddy run --config deploy/Caddyfile
+#    (install: https://caddyserver.com/docs/install — or `sudo apt install caddy` on Debian/Ubuntu 22+)
+#
+# Both app ports are bound to 127.0.0.1 in docker-compose.yml,
+# so only Caddy can reach them.
+
+your-domain.com {
+	encode gzip zstd
+
+	# long videos/renders — allow big uploads
+	request_body {
+		max_size 2GB
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /media/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

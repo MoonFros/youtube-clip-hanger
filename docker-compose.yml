@@ -1,0 +1,50 @@
+name: fairclip
+
+# Single-machine production setup:
+#   1. cp .env.example .env   (optional API keys)
+#   2. docker compose up -d --build
+#   3. Point a domain at the box via deploy/Caddyfile (auto-TLS)
+#
+# Note: the backend keeps jobs in memory + the data volume. Run ONE api
+# instance (video rendering is CPU-bound, ~1.2-4x realtime at 720p).
+
+services:
+  api:
+    build:
+      context: ./backend
+    image: fairclip-api
+    restart: unless-stopped
+    volumes:
+      - fairclip_data:/app/data
+    environment:
+      FAIRCLIP_DATA: /app/data
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      FAIRCLIP_WHISPER_MODEL: ${FAIRCLIP_WHISPER_MODEL:-base}
+    ports:
+      # local-only; Caddy fronts /api and /media publicly.
+      # No Caddy? Change to "8000:8000" and access the API directly.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        FAIRCLIP_BACKEND: http://api:8000
+    image: fairclip-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  fairclip_data:
