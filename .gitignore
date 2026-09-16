@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+
+# Runtime data (videos, renders, jobs) — never commit media
+backend/data/
+data/
+
+# Env / secrets
+.env
+.env.local
+*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Misc
+/tmp/
+dist/
+build/
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
