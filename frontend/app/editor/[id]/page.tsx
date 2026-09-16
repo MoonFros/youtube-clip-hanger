@@ -199,7 +199,12 @@ export default function EditorPage() {
             <button
               onClick={async () => {
                 try {
-                  await api(`/api/jobs/${id}/clips`, { method: "POST", body: JSON.stringify({}) });
+                  const start = 0;
+                  const end = Math.min(30, Math.max(5, job.duration - 0.5));
+                  await api(`/api/jobs/${id}/clips`, {
+                    method: "POST",
+                    body: JSON.stringify({ start, end, name: "New clip" }),
+                  });
                   await loadClips();
                 } catch (e: any) {
                   console.error(e);

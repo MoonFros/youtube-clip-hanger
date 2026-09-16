@@ -150,6 +150,14 @@ def _suggest(job: Job) -> None:
         job.waveform, job.scenes, job.transcript if job.transcript.get("status") == "ready" else None,
         max_duration=tier["max_clip_seconds"], count=8,
     )
+    # Fallback: short videos (or ones with no detectable structure) still get
+    # one usable clip so the editor is never empty.
+    if not job.suggested_clips and job.duration >= 5:
+        L = min(tier["max_clip_seconds"], max(5.0, job.duration - 0.5))
+        job.suggested_clips = [{
+            "id": "sug1", "start": 0.0, "end": round(L, 2),
+            "score": 0.0, "label": f"Full video ({L:.0f}s)",
+        }]
 
 
 _STAGE_FNS = {

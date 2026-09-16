@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ClipPublic, JobPublic, Word, fmtTime } from "../lib/api";
+import { ClipPublic, JobPublic, Word, fmtTime, url } from "../lib/api";
 
 const TPL: Record<string, { zoom: [number, number]; capStyle: string }> = {
   cinematic_zoom: { zoom: [1.1, 1.16], capStyle: "clean" },
@@ -92,9 +92,33 @@ export default function PhonePreview({
     playhead(nt);
   };
 
+  const replay = () => {
+    const v = vidRef.current;
+    if (!v) return;
+    seek(0);
+    v.play().catch(() => {});
+    setPlaying(true);
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center">
-      <div className="phone-frame relative h-full max-h-[560px] w-auto overflow-hidden rounded-[28px]" style={{ aspectRatio: "9/16" }}>
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2">
+      <div className="flex w-full max-w-[340px] items-center justify-between gap-2 rounded-xl border border-ink-600 bg-ink-850 px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-white">
+            ▶️ Now playing: <span className="text-accent-soft">the section you're editing</span>
+          </p>
+          <p className="truncate text-[10px] text-zinc-500">
+            {fmtTime(clip.start)} – {fmtTime(clip.end)} of source ({fmtTime(localDur)} clip) · loops automatically
+          </p>
+        </div>
+        <button
+          onClick={replay}
+          className="shrink-0 rounded-lg bg-ink-600 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-ink-700"
+        >
+          ↺ Replay
+        </button>
+      </div>
+      <div className="phone-frame relative h-full max-h-[520px] w-auto overflow-hidden rounded-[28px]" style={{ aspectRatio: "9/16" }}>
         {/* scene */}
         <div className="absolute inset-0 overflow-hidden bg-black">
           <div
@@ -107,7 +131,7 @@ export default function PhonePreview({
           >
             <video
               ref={vidRef}
-              src={`/media/jobs/${jobId}/preview`}
+              src={url(`/media/jobs/${jobId}/preview`)}
               muted
               playsInline
               className={`h-full w-full ${clip.template === "reaction_frame" ? "scale-110 blur-2xl brightness-50" : "object-cover"}`}
@@ -147,7 +171,7 @@ export default function PhonePreview({
             <>
               <video
                 ref={vid2Ref}
-                src={`/media/jobs/${jobId}/preview`}
+                src={url(`/media/jobs/${jobId}/preview`)}
                 muted
                 playsInline
                 className="absolute left-1/2 top-[16%] h-auto w-[72%] -translate-x-1/2 rounded-2xl border border-white/30 shadow-2xl"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../AppProvider";
-import { ClipPublic, RenderPublic, fmtTime } from "../../lib/api";
+import { ClipPublic, RenderPublic, fmtTime, url } from "../../lib/api";
 
 export default function ExportTab({
   jobId,
@@ -46,7 +46,7 @@ export default function ExportTab({
       return;
     }
     try {
-      await fetch(`/api/clips/${clip.id}/renders`, {
+      await fetch(url(`/api/clips/${clip.id}/renders`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -181,14 +181,14 @@ export default function ExportTab({
           </p>
           <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 bg-black" style={{ aspectRatio: "9/16", maxHeight: 320, margin: "0 auto", width: "min(100%, 220px)" }}>
             <video
-              src={`/media/clips/${clip.id}/renders/${latest.id}/out?nocache=${latest.created}`}
+              src={url(`/media/clips/${clip.id}/renders/${latest.id}/out?nocache=${latest.created}`)}
               controls
               playsInline
               className="h-full w-full object-contain"
             />
           </div>
           <a
-            href={`/media/clips/${clip.id}/renders/${latest.id}/out?download=1`}
+            href={url(`/media/clips/${clip.id}/renders/${latest.id}/out?download=1`)}
             download={`fairclip_${clip.name || "clip"}.${format}`}
             className="mt-3 block w-full rounded-xl bg-accent px-4 py-2.5 text-center text-sm font-bold text-white transition hover:bg-accent-soft"
           >

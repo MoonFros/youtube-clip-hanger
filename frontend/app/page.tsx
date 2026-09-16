@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useApp } from "../components/AppProvider";
-import { api } from "../lib/api";
+import { api, url } from "../lib/api";
 
 const TEMPLATES = [
   { emoji: "🎬", name: "Cinematic Zoom", desc: "Slow push-in, cinematic grade, micro-cuts" },
@@ -19,7 +19,7 @@ export default function Landing() {
   const router = useRouter();
   const { toast, health } = useApp();
   const [tab, setTab] = useState<"demo" | "upload" | "url" | "link">("demo");
-  const [url, setUrl] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -44,8 +44,8 @@ export default function Landing() {
     try {
       let source: any;
       if (tab === "demo") source = { type: "demo" };
-      else if (tab === "url") source = { type: "url", url };
-      else if (tab === "link") source = { type: "link", url };
+      else if (tab === "url") source = { type: "url", url: linkUrl };
+      else if (tab === "link") source = { type: "link", url: linkUrl };
       else {
         if (!file) throw new Error("Choose a video file first");
         source = { type: "upload" };
@@ -54,7 +54,7 @@ export default function Landing() {
       if (tab === "upload") {
         const fd = new FormData();
         fd.append("file", file);
-        const r = await fetch(`/api/jobs/${j.job_id}/upload`, { method: "POST", body: fd });
+        const r = await fetch(url(`/api/jobs/${j.job_id}/upload`), { method: "POST", body: fd });
         if (!r.ok) throw new Error("Upload failed: " + (await r.text()));
       }
       router.push(`/job/${j.job_id}`);
@@ -218,12 +218,28 @@ export default function Landing() {
               )}
             </div>
           )}
+          {tab === "upload" && (
+            <div className="mt-3">
+              <button
+                onClick={start}
+                disabled={busy || !file}
+                className="w-full rounded-xl bg-gradient-to-r from-accent to-cy px-4 py-3 text-sm font-bold text-white shadow-glow transition hover:brightness-110 disabled:opacity-40"
+              >
+                {busy ? `Uploading ${file?.name || ""}…` : "⚡ Clip this video →"}
+              </button>
+              {file && (
+                <p className="mt-2 text-center text-[11px] text-zinc-500">
+                  {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB — analysis starts after upload
+                </p>
+              )}
+            </div>
+          )}
 
           {(tab === "url" || tab === "link") && (
             <div className="rounded-xl border border-ink-700 bg-ink-850 p-5">
               <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
                 placeholder={tab === "url" ? "https://youtube.com/watch?v=…" : "https://example.com/talk.mp4"}
                 className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-accent"
               />
@@ -234,7 +250,7 @@ export default function Landing() {
               </p>
               <button
                 onClick={start}
-                disabled={busy || !url.trim()}
+                disabled={busy || !linkUrl.trim()}
                 className="mt-4 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-soft disabled:opacity-40"
               >
                 {busy ? "Fetching…" : "Fetch video →"}

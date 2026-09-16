@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { url } from "../lib/api";
 
 type Toast = { id: number; kind: "info" | "success" | "error"; msg: string };
 type Ctx = {
@@ -26,7 +27,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const h = await fetch("/api/health").then((r) => r.json());
+        const h = await fetch(url("/api/health")).then((r) => r.json());
         setHealth(h);
       } catch (e) {
         console.error("health", e);

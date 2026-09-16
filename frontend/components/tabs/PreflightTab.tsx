@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../AppProvider";
-import { RenderPublic } from "../../lib/api";
+import { RenderPublic, url } from "../../lib/api";
 
 export default function PreflightTab({
   clipId,
@@ -61,7 +61,7 @@ export default function PreflightTab({
     if (!render) return;
     setFixing(warningId);
     try {
-      const r = await fetch(`/api/clips/${clipId}/renders/${render.id}/fix`, {
+      const r = await fetch(url(`/api/clips/${clipId}/renders/${render.id}/fix`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ warning_id: warningId }),

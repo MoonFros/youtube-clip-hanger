@@ -114,9 +114,18 @@ export type Health = {
   legal_disclaimer: string;
 };
 
-// ---- api ----
+// Base URL of the FairClip API.
+// - Local dev / docker compose: "" (same origin, Next rewrites proxy to :8000)
+// - Vercel + Render: set NEXT_PUBLIC_API_BASE=https://your-api.onrender.com
+export const API_BASE: string = process.env.NEXT_PUBLIC_API_BASE || "";
+
+/** Absolute URL for any backend route (api or media). */
+export function url(path: string): string {
+  return API_BASE + path;
+}
+
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(path, {
+  const r = await fetch(url(path), {
     ...opts,
     headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
   });

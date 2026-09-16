@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { useApp } from "../AppProvider";
-import { Analysis, ClipPublic, JobPublic } from "../../lib/api";
+import { Analysis, ClipPublic, JobPublic, url } from "../../lib/api";
 
 const LAYERS = [
   { id: "dialogue", label: "Dialogue", color: "#e5e7eb", icon: "🎙️", desc: "Speech — always kept clear", modes: ["keep", "mute"] },
@@ -67,7 +67,7 @@ export default function AudioTab({
     try {
       const ws = WaveSurfer.create({
         container: box,
-        url: `/media/jobs/${jobId}/stems/${layer}`,
+        url: url(`/media/jobs/${jobId}/stems/${layer}`),
         waveColor: LAYERS.find((l) => l.id === layer)!.color + "66",
         progressColor: LAYERS.find((l) => l.id === layer)!.color,
         barWidth: 2,
@@ -186,7 +186,7 @@ export default function AudioTab({
               disabled={pasted.trim().length < 20}
               onClick={async () => {
                 try {
-                  await fetch(`/api/jobs/${jobId}/transcript`, {
+                  await fetch(url(`/api/jobs/${jobId}/transcript`), {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ text: pasted }),

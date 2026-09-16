@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useApp } from "../AppProvider";
-import { ClipPublic } from "../../lib/api";
+import { ClipPublic, url } from "../../lib/api";
 
 export default function BookendTab({
   jobId,
@@ -38,7 +38,7 @@ export default function BookendTab({
   const generate = async () => {
     setBusy(true);
     try {
-      const r = await fetch(`/api/clips/${clip.id}/bookend`, {
+      const r = await fetch(url(`/api/clips/${clip.id}/bookend`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ style: be.style, voice: be.voice }),
@@ -76,7 +76,7 @@ export default function BookendTab({
         fd.append("style", be.style);
         fd.append("voice", "mic");
         try {
-          const r = await fetch(`/api/clips/${clip.id}/bookend/mic`, { method: "POST", body: fd });
+          const r = await fetch(url(`/api/clips/${clip.id}/bookend/mic`), { method: "POST", body: fd });
           if (!r.ok) throw new Error((await r.json()).detail || "Mic upload failed");
           const j = await r.json();
           setTtsUrls(j.tts_audio || {});
@@ -100,9 +100,9 @@ export default function BookendTab({
   };
 
   const playTts = (kind: "intro" | "outro") => {
-    const url =
-      ttsUrls[kind] || `/media/jobs/${jobId}/tts/tts_${clip.id}_${kind}.wav`;
-    const a = new Audio(url);
+    const src =
+      ttsUrls[kind] && url(ttsUrls[kind]) || url(`/media/jobs/${jobId}/tts/tts_${clip.id}_${kind}.wav`);
+    const a = new Audio(src);
     a.play().catch(() => toast("TTS not ready yet — generate the bookend first", "info"));
   };
 
