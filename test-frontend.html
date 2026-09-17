@@ -3,29 +3,42 @@
 <head>
   <title>Test Backend - YouTube Clip Hanger</title>
   <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #111; color: #eee; }
+    body { font-family: sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; background: #111; color: #eee; }
     input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
     button { background: white; color: black; border: none; cursor: pointer; font-weight: bold; }
-    .log { background: #222; padding: 10px; margin-top: 20px; white-space: pre-wrap; font-family: monospace; font-size: 12px; }
-    .ok { color: #4ade80; }
-    .err { color: #f87171; }
+    button.secondary { background: #333; color: #eee; }
+    .log { background: #222; padding: 10px; margin-top: 20px; white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 400px; overflow-y: auto; }
+    .section { border: 1px solid #333; padding: 15px; margin: 15px 0; border-radius: 8px; }
   </style>
 </head>
 <body>
-  <h1>Test Backend Fix</h1>
-  <p>If backend is running on :8000, these buttons should work.</p>
+  <h1>YouTube Clip Hanger - Test</h1>
   
-  <h3>1. Health Check</h3>
-  <button onclick="testHealth()">GET /api/health</button>
-  
-  <h3>2. Create Clip (CORRECT format)</h3>
-  <input id="url" placeholder="YouTube URL" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
-  <input id="start" placeholder="Start" value="00:00:05">
-  <input id="end" placeholder="End" value="00:00:15">
-  <button onclick="testCreate()">POST /api/jobs with {url, start_time, end_time}</button>
-  
-  <h3>3. Create Clip (OLD broken format - will show your error)</h3>
-  <button onclick="testBroken()">POST /api/jobs with {source: {type: upload}} - BROKEN</button>
+  <div class="section">
+    <h3>1. Health Check</h3>
+    <button onclick="testHealth()">GET /api/health</button>
+  </div>
+
+  <div class="section">
+    <h3>2. YouTube URL (CORRECT)</h3>
+    <input id="url" placeholder="YouTube URL" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+    <input id="start" placeholder="Start" value="00:00:05">
+    <input id="end" placeholder="End" value="00:00:15">
+    <button onclick="testCreate()">POST {url, start_time, end_time} - WORKS</button>
+  </div>
+
+  <div class="section">
+    <h3>3. File Upload (CORRECT - uses FormData)</h3>
+    <input type="file" id="file" accept="video/*">
+    <input id="start2" placeholder="Start" value="00:00:02">
+    <input id="end2" placeholder="End" value="00:00:08">
+    <button onclick="testUpload()">POST FormData with file - WORKS</button>
+  </div>
+
+  <div class="section">
+    <h3>4. Broken format (your current error)</h3>
+    <button class="secondary" onclick="testBroken()">POST {source: {type: upload}} - BROKEN, no file</button>
+  </div>
   
   <div id="log" class="log">Logs will appear here...</div>
 
@@ -40,7 +53,7 @@
     try {
       const res = await fetch('/api/health');
       const data = await res.json();
-      log(`Health ${res.status}: ${JSON.stringify(data)}`, !res.ok);
+      log(`Health ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
     } catch(e) {
       log(`Health failed: ${e.message}`, true);
     }
@@ -57,9 +70,36 @@
         body: JSON.stringify({ url, start_time: start, end_time: end })
       });
       const data = await res.json();
-      log(`Create ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
+      log(`YouTube Create ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
     } catch(e) {
       log(`Create failed: ${e.message}`, true);
+    }
+  }
+
+  async function testUpload() {
+    const fileInput = document.getElementById('file');
+    const start = document.getElementById('start2').value;
+    const end = document.getElementById('end2').value;
+    if (!fileInput.files[0]) {
+      log('Please select a file first!', true);
+      return;
+    }
+    try {
+      const form = new FormData();
+      form.append('file', fileInput.files[0]);
+      form.append('start_time', start);
+      form.append('end_time', end);
+      
+      log(`Uploading ${fileInput.files[0].name} (${(fileInput.files[0].size/1024/1024).toFixed(2)} MB)...`);
+      
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        body: form // Don't set Content-Type, browser sets multipart/form-data
+      });
+      const data = await res.json();
+      log(`Upload ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
+    } catch(e) {
+      log(`Upload failed: ${e.message}`, true);
     }
   }
 
