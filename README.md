@@ -41,11 +41,58 @@ Failed to proxy http://127.0.0.1:8000/api/jobs Error: connect ECONNREFUSED 127.0
 
 4. **Arena preview fix**: Added `allowedDevOrigins: ['*.e2b.app']` in `next.config.mjs` and CORS `allow_origins=["*"]` in FastAPI. Frontend uses relative URLs `/api/...` so browser never calls `localhost` directly — Next.js server proxies it.
 
-### Verify
+### Verify backend is REALLY running (Windows & Mac)
 
-- Backend health: `curl http://127.0.0.1:8000/api/health`
-- Frontend should show green dot "API OK" in header.
-- If you still see red, click Retry or check backend logs.
+**What success looks like:** When backend starts, you MUST see this in terminal:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started server process [....]
+INFO:     Application startup complete.
+```
+If you don't see that, backend is NOT running.
+
+**Windows PowerShell (your case):**
+
+Your command `cd backend>> ./run.sh` is wrong:
+- `>>` means "redirect output to file" in PowerShell/Bash, not "run"
+- `./run.sh` is a Bash script, won't work in PowerShell by default
+- And there was no `run.sh` before - now I added it
+
+Correct Windows steps (from repo ROOT `C:\...\youtube-clip-hanger`):
+
+```powershell
+# 1. From root, NOT inside backend folder
+cd C:\Users\HP\Desktop\cobeunh\youtube-clip-hanger
+
+# 2. Install deps
+pip install -r backend\requirements.txt
+
+# 3. Run backend (this is the real command)
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+# You should see "Uvicorn running on http://0.0.0.0:8000"
+# Leave this terminal running!
+
+# 4. Open SECOND terminal for frontend
+cd C:\Users\HP\Desktop\cobeunh\youtube-clip-hanger
+npm install
+npm run dev:frontend
+```
+
+Or just double-click `run.bat` in root - I added it for Windows.
+
+Or use one-terminal mode:
+```powershell
+npm run dev:all
+```
+
+**How to check:**
+- Browser: http://localhost:8000/api/health  should show `{"status":"ok",...}`
+- Browser: http://localhost:8000/docs  should show Swagger UI
+- Frontend: http://localhost:3000 should show green dot "API OK"
+- PowerShell: `curl http://127.0.0.1:8000/api/health` or `Invoke-RestMethod http://localhost:8000/api/health`
+
+If you see `ECONNREFUSED` again, backend terminal is not running or crashed.
 
 ## Dev
 
