@@ -75,7 +75,63 @@ async def process_job(job_id: str):
         return
     try:
         job["status"] = "processing"
-        if shutil.which("yt-dlp") and shutil.which("ffmpeg") and job["url"].startswith("http"):
+        url = job["url"]
+        
+        # Check if it's a local uploaded file
+        is_local_file = False
+        local_path = None
+        try:
+            p = Path(url)
+            if p.exists() and p.is_file():
+                is_local_file = True
+                local_path = p
+            elif (CLIPS_DIR / Path(url).name).exists():
+                is_local_file = True
+                local_path = CLIPS_DIR / Path(url).name
+            elif url.startswith("clips/") or url.startswith("clips\\"):
+                # Handle relative clips path
+                check_path = Path(url)
+                if check_path.exists():
+                    is_local_file = True
+                    local_path = check_path
+        except:
+            pass
+        
+        if is_local_file and local_path:
+            # Handle uploaded file - clip it if ffmpeg available, else just serve it
+            await asyncio.sleep(0.5)
+            job["title"] = f"Uploaded: {local_path.name}"
+            # If ffmpeg available and times are not default, try to clip
+            if shutil.which("ffmpeg"):
+                try:
+                    import subprocess
+                    start_sec = parse_time_to_seconds(job["start_time"])
+                    end_sec = parse_time_to_seconds(job["end_time"])
+                    # Only clip if duration is specified and not full file
+                    if start_sec > 0 or (end_sec - start_sec) < 600:
+                        duration = max(0.1, end_sec - start_sec)
+                        output_filename = f"{job_id}_{local_path.stem}.mp4"
+                        output_path = CLIPS_DIR / output_filename
+                        cmd_clip = [
+                            "ffmpeg", "-y",
+                            "-ss", str(start_sec),
+                            "-i", str(local_path),
+                            "-t", str(duration),
+                            "-c:v", "libx264",
+                            "-c:a", "aac",
+                            str(output_path)
+                        ]
+                        proc = await asyncio.to_thread(subprocess.run, cmd_clip, capture_output=True, text=True, timeout=60)
+                        if proc.returncode == 0:
+                            job["clip_path"] = f"/clips/{output_filename}"
+                            job["status"] = "completed"
+                            return
+                except Exception as e:
+                    print(f"Clip failed for upload, serving original: {e}")
+            # Fallback: serve original uploaded file
+            job["clip_path"] = f"/clips/{local_path.name}"
+            job["status"] = "completed"
+        elif shutil.which("yt-dlp") and shutil.which("ffmpeg") and url.startswith("http"):
             import subprocess
             import tempfile
             tmpdir = tempfile.mkdtemp()
@@ -86,7 +142,7 @@ async def process_job(job_id: str):
                     "-f", "best[ext=mp4]/best",
                     "-o", ydl_output,
                     "--no-playlist",
-                    job["url"]
+                    url
                 ]
                 proc = await asyncio.to_thread(subprocess.run, cmd_download, capture_output=True, text=True, timeout=120)
                 if proc.returncode != 0:
@@ -129,12 +185,24 @@ async def process_job(job_id: str):
                 shutil.rmtree(tmpdir, ignore_errors=True)
         else:
             await asyncio.sleep(1)
-            # Handle uploaded files or youtube urls
-            if job["url"].startswith("http"):
-                job["title"] = f"Clip for {job['url'][:40]}..."
+            # Mock processing when ffmpeg/yt-dlp missing
+            if url.startswith("http"):
+                job["title"] = f"Clip for {url[:40]}... (mock - install ffmpeg for real clipping)"
+                # Check why mock
+                if not shutil.which("ffmpeg"):
+                    job["error"] = "ffmpeg not found - install ffmpeg for real YouTube clipping. Mock completed."
+                elif not shutil.which("yt-dlp"):
+                    job["error"] = "yt-dlp not found - pip install yt-dlp"
             else:
-                job["title"] = f"Uploaded file: {Path(job['url']).name}"
-            job["clip_path"] = None
+                job["title"] = f"Uploaded file: {Path(url).name}"
+                # If local file exists, serve it
+                if Path(url).exists():
+                    job["clip_path"] = f"/clips/{Path(url).name}"
+                else:
+                    # Try clips dir
+                    possible = CLIPS_DIR / Path(url).name
+                    if possible.exists():
+                        job["clip_path"] = f"/clips/{possible.name}"
             job["status"] = "completed"
     except Exception as e:
         job["status"] = "failed"
@@ -154,7 +222,15 @@ async def health_check():
 @app.get("/api/jobs")
 async def list_jobs():
     jobs = sorted(jobs_db.values(), key=lambda x: x["created_at"], reverse=True)
-    return jobs
+    # Add compatibility fields
+    result = []
+    for j in jobs:
+        result.append({
+            **j,
+            "jobId": j["id"],
+            "job_id": j["id"],
+        })
+    return result
 
 def extract_url_from_payload(data: Dict[str, Any]) -> tuple[Optional[str], str, str]:
     """
@@ -297,6 +373,9 @@ async def create_job(request: Request):
     job_id = str(uuid.uuid4())[:8]
     job = {
         "id": job_id,
+        "jobId": job_id,  # compatibility for frontends expecting jobId
+        "job_id": job_id,
+        "_id": job_id,
         "url": url,
         "start_time": str(start_time),
         "end_time": str(end_time),
@@ -307,14 +386,27 @@ async def create_job(request: Request):
     }
     jobs_db[job_id] = job
     asyncio.create_task(process_job(job_id))
-    return job
+    # Return with compatibility fields
+    return {
+        **job,
+        "jobId": job_id,
+        "job_id": job_id,
+        "id": job_id,
+    }
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
+    # Handle undefined string from buggy frontend
+    if job_id == "undefined" or job_id == "null":
+        raise HTTPException(status_code=400, detail="Job ID is undefined. Frontend bug: expected id but got undefined. Make sure backend returns id field and frontend uses data.id or data.jobId")
     job = jobs_db.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return {
+        **job,
+        "jobId": job["id"],
+        "job_id": job["id"],
+    }
 
 @app.delete("/api/jobs/{job_id}")
 async def delete_job(job_id: str):
