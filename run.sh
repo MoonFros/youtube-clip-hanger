@@ -1,18 +1,51 @@
-#!/bin/bash
-# YouTube Clip Hanger - Run backend (port 8000)
-# Usage: ./run.sh  OR  bash run.sh
-
-set -e
+#!/usr/bin/env bash
+# FairClip — start the whole app (backend :8000 + frontend :3000).
+# Usage: ./run.sh          (Ctrl+C stops both)
+#        ./run.sh backend  (backend only)
+#        ./run.sh web      (frontend only)
+set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "=== YouTube Clip Hanger Backend ==="
-echo "Installing requirements..."
-pip install -r backend/requirements.txt
+WHAT="${1:-all}"
+PY="${PYTHON:-python3}"
 
-echo ""
-echo "Starting backend on http://0.0.0.0:8000 ..."
-echo "Check health: http://localhost:8000/api/health"
-echo "Docs: http://localhost:8000/docs"
-echo ""
+echo "=== FairClip ==="
+echo "repo: $PWD"
 
-python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+# ---------------------------------------------------------------- backend ---
+if [ "$WHAT" = "all" ] || [ "$WHAT" = "backend" ]; then
+  if [ ! -d backend/.venv ]; then
+    echo "[setup] creating backend/.venv ..."
+    "$PY" -m venv backend/.venv
+  fi
+  VENV_PY="backend/.venv/bin/python"
+  if [ ! -f backend/.venv/.deps-ok ]; then
+    echo "[setup] installing python deps (one time, ~2 min)..."
+    "$VENV_PY" -m pip install --upgrade pip >/dev/null
+    "$VENV_PY" -m pip install -r backend/requirements.txt
+    touch backend/.venv/.deps-ok
+  fi
+fi
+
+if [ "$WHAT" = "all" ] || [ "$WHAT" = "web" ]; then
+  if [ ! -d frontend/node_modules ]; then
+    echo "[setup] installing frontend deps (one time)..."
+    npm --prefix frontend install
+  fi
+fi
+
+cleanup() { kill 0 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+if [ "$WHAT" = "all" ] || [ "$WHAT" = "backend" ]; then
+  echo "[1/2] backend  -> http://localhost:8000/api/health   (docs: /docs)"
+  backend/.venv/bin/python -m uvicorn backend.app.main:app \
+      --host 0.0.0.0 --port 8000 &
+fi
+
+if [ "$WHAT" = "all" ] || [ "$WHAT" = "web" ]; then
+  echo "[2/2] frontend -> http://localhost:3000"
+  npm --prefix frontend run dev &
+fi
+
+wait

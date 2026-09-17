@@ -208,7 +208,7 @@ def _shot_frame(kind: str, t: float, ts: float, rng) -> np.ndarray:
 
 # ---------------- generation ----------------------------------------------------
 
-def ensure_demo(path: str = "") -> Tuple[str, dict]:
+def ensure_demo(path: str = "", progress_cb=None) -> Tuple[str, dict]:
     """Generate (or load) the demo video. Returns (path, transcript_dict)."""
     d = DATA_DIR / "demo"
     d.mkdir(parents=True, exist_ok=True)
@@ -227,6 +227,8 @@ def ensure_demo(path: str = "") -> Tuple[str, dict]:
     line_audios = []
     transcript_words = []
     print("[demo] synthesizing dialogue...", flush=True)
+    if progress_cb:
+        progress_cb(0.05, "synthesizing demo voiceover")
     for t0, voice, variant, text in LINES:
         wav = str(d / f"line_{t0:.1f}.wav")
         if not os.path.exists(wav):
@@ -258,6 +260,8 @@ def ensure_demo(path: str = "") -> Tuple[str, dict]:
 
     # 2) score + sfx
     print("[demo] synthesizing score + sfx...", flush=True)
+    if progress_cb:
+        progress_cb(0.35, "synthesizing music + sfx")
     music_n = int(sr * DUR)
     chords = [(110.0, 165.0, 220.0), (87.31, 130.8, 174.6), (130.8, 196.0, 261.6),
               (98.0, 147.0, 196.0), (110.0, 165.0, 220.0)]
@@ -299,6 +303,8 @@ def ensure_demo(path: str = "") -> Tuple[str, dict]:
 
     # 3) frames
     print("[demo] rendering frames...", flush=True)
+    if progress_cb:
+        progress_cb(0.45, "rendering demo frames")
     # render into a slightly larger virtual canvas for the slow push/pull
     VW, VH = 1408, 792
     grain_cache = [None] * 8
@@ -306,6 +312,9 @@ def ensure_demo(path: str = "") -> Tuple[str, dict]:
     def gen():
         frame = 0
         for fi in range(n_frames):
+            if progress_cb and fi % 30 == 0:
+                progress_cb(0.45 + 0.5 * fi / n_frames,
+                            f"rendering demo frames {fi}/{n_frames}")
             t = fi / FPS
             # find shot
             kind = "two"
@@ -357,6 +366,8 @@ def ensure_demo(path: str = "") -> Tuple[str, dict]:
     print("[demo] encoding...", flush=True)
     mux_output(tmp, W, H, FPS, gen(), audio=stereo, audio_sr=sr, crf=21,
                preset="veryfast")
+    if progress_cb:
+        progress_cb(0.95, "finalising demo")
     os.replace(tmp, out)
     meta = {"transcript": {"status": "ready", "engine": "demo-ground-truth",
                            "text": " ".join(l[3] for l in LINES),

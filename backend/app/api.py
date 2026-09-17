@@ -67,6 +67,22 @@ def _range_response(path: str, request: Request, media_type: str) -> Response:
     return FileResponse(path, media_type=media_type)
 
 
+def _ytdlp_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("yt-dlp")
+    except Exception:
+        return ""
+
+
+def _ffmpeg_version() -> str:
+    try:
+        from .engine import ffmpeg_version
+        return ffmpeg_version()
+    except Exception:
+        return ""
+
+
 def _get_job_or_404(job_id: str):
     job = STORE.get_job(job_id)
     if job is None:
@@ -92,6 +108,8 @@ def health():
         "demo_ready": demo_file.exists(),
         "demo_generating": demo_state["generating"],
         "demo_error": demo_state["error"],
+        "yt_dlp": _ytdlp_version(),
+        "ffmpeg": _ffmpeg_version(),
         "tts_voices": {k: {"label": v[2], "desc": v[3]} for k, v in TTS_VOICES.items()},
         "hook_styles": HOOK_STYLES,
         "tiers": {k: v for k, v in TIERS.items()},
@@ -144,11 +162,17 @@ async def create_job(body: Dict[str, Any]):
             demo_state["generating"] = True
 
             async def _gen():
+                def _prog(f: float, msg: str = "") -> None:
+                    job.status = "processing"
+                    job.stage = "demo"
+                    job.progress = round(0.55 * f, 3)
+                    job.detail = msg
                 try:
-                    path, meta = await asyncio.to_thread(ensure_demo, str(demo_file))
+                    path, meta = await asyncio.to_thread(ensure_demo, str(demo_file),
+                                                         _prog)
                     job.source_path = path
                     job.transcript = meta["transcript"]
-                    await ingest.run_job(job.id)
+                    await ingest.run_job(job.id, base=0.55, span=0.45)
                     demo_state["done"] = True
                 except Exception as e:  # noqa: BLE001
                     demo_state["error"] = str(e)
@@ -187,7 +211,7 @@ async def upload(job_id: str, file: UploadFile = File(...)):
         raise HTTPException(409, "job already has a source")
     if not job.source_type == "upload" and not job.source_path:
         job.source_type = "upload"
-    await asyncio.to_thread(ingest.ingest_upload, job, file.file)
+    await asyncio.to_thread(ingest.ingest_upload, job, file.file, file.filename or "")
     await asyncio.to_thread(ingest.finalize_job_source, job)
     _spawn(ingest.run_job(job.id))
     return {"job_id": job.id, "status": job.status}
@@ -196,6 +220,18 @@ async def upload(job_id: str, file: UploadFile = File(...)):
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str):
     return _get_job_or_404(job_id).public()
+
+
+@router.delete("/jobs/{job_id}")
+def cancel_job(job_id: str):
+    """Cooperative cancel: the pipeline aborts at the next stage/hook check."""
+    job = _get_job_or_404(job_id)
+    if job.status in ("ready", "error", "cancelled"):
+        return {"job_id": job.id, "status": job.status}
+    job.cancel_requested = True
+    if job.status == "queued":
+        job.status = "cancelled"
+    return {"job_id": job.id, "status": job.status}
 
 
 @router.get("/jobs/{job_id}/analysis")
@@ -532,12 +568,17 @@ def media_stem(job_id: str, layer: str, request: Request):
     if not wav.exists():
         import numpy as np
         import wave
-        data = np.load(npz)[layer]
-        frames = (np.clip(data, -1, 1) * 32767).astype("<i2").tobytes()
+        with np.load(npz) as npz_data:
+            data = npz_data[layer]
+            sr = int(npz_data["sr"]) if "sr" in npz_data.files else 48000
+        if data.dtype == np.int16:
+            frames = data.tobytes()
+        else:
+            frames = (np.clip(data, -1, 1) * 32767).astype("<i2").tobytes()
         with wave.open(str(wav), "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(48000)
+            wf.setframerate(sr)
             wf.writeframes(frames)
     return _range_response(str(wav), request, "audio/wav")
 

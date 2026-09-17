@@ -73,8 +73,64 @@ def _median_axis_t(spec_mag: np.ndarray, win: int = 41) -> np.ndarray:
     return out
 
 
-def separate_stems(x: np.ndarray, sr: int = SR) -> Dict[str, np.ndarray]:
-    """x: (n,) mono float32 @48k. Returns stems + envelopes."""
+def separate_stems_chunked(x: np.ndarray, sr: int = SR, block_s: int = 0,
+                           progress_cb=None) -> Dict[str, np.ndarray]:
+    """Same result as `separate_stems`, but processed in blocks.
+
+    The single-shot version builds several (frames x fft) float arrays at once:
+    a 20-minute video needed ~2 GB of temporaries and an hour-long one would
+    simply take the machine down. Blocking keeps peak memory constant (a few
+    tens of MB) and gives the UI a progress fraction.
+    """
+    if block_s <= 0:
+        from .config import STEMS_BLOCK_S
+        block_s = STEMS_BLOCK_S
+    n = len(x)
+    if n <= sr * block_s:
+        res = separate_stems(x, sr=sr)
+        if progress_cb:
+            progress_cb(1.0)
+        return res
+
+    step = sr * block_s
+    n_blocks = int(np.ceil(n / step))
+    if progress_cb:
+        progress_cb(0.0)
+    parts: Dict[str, list] = {"dialogue": [], "music": [], "sfx": []}
+    envs: Dict[str, list] = {"t": [], "dialogue": [], "music": [], "sfx": [], "rms": []}
+    env_bin = max(1, int(0.05 * sr))
+
+    for b in range(n_blocks):
+        seg = x[b * step:(b + 1) * step]
+        # pad the last block so it ends on an envelope bin boundary
+        pad = (-len(seg)) % env_bin
+        if pad:
+            seg = np.concatenate([seg, np.zeros(pad, dtype=seg.dtype)])
+        res = separate_stems(seg, sr=sr, normalize=False)
+        for k in ("dialogue", "music", "sfx"):
+            parts[k].append(res[k])
+        e = res["env"]
+        for k in ("dialogue", "music", "sfx", "rms"):
+            envs[k].extend(e.get(k, []))
+        t0 = b * block_s
+        envs["t"].extend([round(t0 + t, 3) for t in e.get("t", [])])
+        if progress_cb:
+            progress_cb((b + 1) / n_blocks)
+
+    out = {k: np.concatenate(v)[: n] for k, v in parts.items()}
+    # normalise once over the whole track (per-block normalisation would pump)
+    for k in ("dialogue", "music", "sfx"):
+        peak = float(np.max(np.abs(out[k]))) if out[k].size else 0.0
+        if peak > 1.0:
+            out[k] = (out[k] / peak).astype(np.float32)
+    out["env"] = {k: v[: len(envs["t"])] for k, v in envs.items()}
+    out["activity"] = np.array([], dtype=np.float32)
+    return out
+
+
+def separate_stems(x: np.ndarray, sr: int = SR,
+                   normalize: bool = True) -> Dict[str, np.ndarray]:
+    """x: (n,) mono float32 @sr. Returns stems + envelopes."""
     x = x.astype(np.float32)
     if x.max() < 1e-6:
         z = np.zeros_like(x)
@@ -104,10 +160,12 @@ def separate_stems(x: np.ndarray, sr: int = SR) -> Dict[str, np.ndarray]:
     a_gate = np.clip((a_vocal - 0.18) / 0.22, 0, 1)
     a_sub = E_low / E_tot
     a_gate = a_gate * np.clip(1.2 - a_sub * 4, 0.25, 1)
-    # smooth in time (100ms)
-    k = max(1, int(0.100 * sr / HOP))
-    kernel = np.ones(k) / k
-    a_gate = np.convolve(a_gate, kernel, mode="same")
+    # smooth in time (100ms). `np.convolve(..., "same")` returns
+    # max(len(signal), len(kernel)) samples, so the kernel must never be longer
+    # than the signal (that blew up on very short blocks with a shape error).
+    k = max(1, min(int(0.100 * sr / HOP), a_gate.size))
+    if k > 1:
+        a_gate = np.convolve(a_gate, np.ones(k) / k, mode="same")
     a_gate = np.clip(a_gate, 0, 1)
 
     # --- Wiener-style masks ---------------------------------------------------
@@ -131,10 +189,11 @@ def separate_stems(x: np.ndarray, sr: int = SR) -> Dict[str, np.ndarray]:
     sfx = _istft(spec * m_sfx, w, len(x))
 
     # normalize stems so the mix is preserved in balance
-    for s in (dlg, mus, sfx):
-        peak = np.max(np.abs(s))
-        if peak > 1.0:
-            s /= peak
+    if normalize:
+        for s in (dlg, mus, sfx):
+            peak = np.max(np.abs(s))
+            if peak > 1.0:
+                s /= peak
 
     # --- envelopes (per 50 ms) -------------------------------------------------
     env_bin = int(0.05 * sr)

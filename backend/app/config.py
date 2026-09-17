@@ -60,8 +60,46 @@ LEGAL_DISCLAIMER = (
 PREVIEW_MAX_HEIGHT = 720
 WAVEFORM_BUCKETS = 1200              # waveform samples for the UI
 ENVELOPE_DT = 0.05                   # stem envelope resolution (s)
+ENVELOPE_SR = 24000                  # enough for the low/mid/high bands, half the RAM
 JOB_RETENTION_HOURS = 24             # auto-delete after 24h (free tier)
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _env_flag(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def _env_int(name: str, default: int = 0) -> int:
+    try:
+        return int(float(os.environ.get(name, "") or default))
+    except Exception:
+        return default
+
+
+# ---- Fast paths --------------------------------------------------------------
+# A system ffmpeg is used when present: preview transcodes, audio extraction and
+# scene detection all run through it because PyAV's python frame loop is
+# several times slower. Everything still works without it.
+FFMPEG = _env_flag("FAIRCLIP_FFMPEG") or None      # explicit path (optional)
+
+# ---- Stems -------------------------------------------------------------------
+STEMS_SR = _env_int("FAIRCLIP_STEMS_SR", 48000)     # "HD" separation rate
+STEMS_SR_LONG = _env_int("FAIRCLIP_STEMS_SR_LONG", 16000)   # for long videos
+STEMS_LONG_THRESHOLD_S = _env_int("FAIRCLIP_STEMS_LONG_AFTER_S", 900)
+STEMS_BLOCK_S = _env_int("FAIRCLIP_STEMS_BLOCK_S", 20)      # memory bound
+
+# ---- YouTube / yt-dlp --------------------------------------------------------
+# 720p by default: 1080p+ doubles the download AND every later analysis stage.
+YTDLP_MAX_HEIGHT = _env_int("FAIRCLIP_YTDLP_MAX_HEIGHT", 720)
+YTDLP_FORMAT = _env_flag("FAIRCLIP_YTDLP_FORMAT")   # override the format ladder
+# "chrome" / "edge" / "firefox" — lets yt-dlp reuse your browser session. This is
+# the fix when YouTube answers "Sign in to confirm you're not a bot".
+YTDLP_COOKIES_FROM_BROWSER = _env_flag("FAIRCLIP_COOKIES_FROM_BROWSER")
+YTDLP_COOKIES_FILE = _env_flag("FAIRCLIP_COOKIES_FILE")
+# Download only the first N minutes of very long videos (0 = the whole thing).
+YTDLP_MAX_SOURCE_MINUTES = _env_int("FAIRCLIP_MAX_SOURCE_MINUTES", 0)
+# Comma separated extra yt-dlp options, e.g. "extractor_args={'youtube':{...}}"
+YTDLP_EXTRA_ARGS = _env_flag("FAIRCLIP_YTDLP_EXTRA_ARGS")
 
 # ---- External AI (optional, env-configured) --------------------------------
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")

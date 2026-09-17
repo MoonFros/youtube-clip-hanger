@@ -8,13 +8,21 @@ FairClip is two long-running services:
 | `web`    | Node 20 · Next.js 14           | Light — static + proxy rewrites      |
 
 Everything runs with zero external dependencies: no database, no object
-storage, no ffmpeg. State lives in the api container's memory + a data
+storage. State lives in the api container's memory + a data
 volume (auto-cleaned after 24 h). **Run exactly one `api` instance** —
 scale by adding workers later (see "Beyond a single box").
+
+The image ships `ffmpeg` (see `backend/Dockerfile`). It is optional — every
+stage has a pure-PyAV fallback — but it makes the bulk stages (preview
+transcode, audio extraction, scene detection) 5–20× faster, so do not remove
+it for a production box.
 
 Optional env vars (all fall back to on-device/offline processing if unset):
 - `OPENAI_API_KEY` — Whisper transcription + LLM hook writing (without it, users paste the transcript)
 - `ELEVENLABS_API_KEY` — higher-quality TTS voices (without it, the vendored meSpeak voice is used)
+- `FAIRCLIP_YTDLP_MAX_HEIGHT` (720), `FAIRCLIP_MAX_SOURCE_MINUTES` (0 = all),
+  `FAIRCLIP_COOKIES_FROM_BROWSER` — YouTube download tuning
+- `FAIRCLIP_FFMPEG` — explicit ffmpeg path if it is not on `PATH`
 
 ---
 
@@ -88,6 +96,14 @@ curl -o /dev/null -w "%{http_code}\n" https://your-domain.com/   # 200
 ```
 Then in the browser: click **Demo video → Clip the demo**, render a clip,
 check the pre-flight score.
+
+Two things that used to bite in production and are worth knowing:
+- **A job that never finishes** is a bug — every stage reports a percentage and
+  can be cancelled (`DELETE /api/jobs/{id}`), and the api log prints one line
+  per stage. If a stage is stuck, the log says which one.
+- **yt-dlp**: set `FAIRCLIP_COOKIES_FROM_BROWSER` if YouTube throttles the
+  server's IP ("Sign in to confirm you're not a bot"), and keep `yt-dlp`
+  current (`pip install -U yt-dlp`) — YouTube changes its player often.
 
 ---
 

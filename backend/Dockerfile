@@ -2,9 +2,12 @@
 # Build context: the backend/ directory
 FROM python:3.11-slim
 
-# Node.js for the offline TTS fallback (vendored meSpeak in tts/vendor)
+# nodejs  — offline TTS fallback (vendored meSpeak in tts/vendor)
+# ffmpeg  — optional accelerator: preview transcodes, audio extraction and scene
+#           detection run 5-20x faster through it than through the PyAV python
+#           frame loop. The image works without it, just slower.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm \
+    && apt-get install -y --no-install-recommends nodejs npm ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

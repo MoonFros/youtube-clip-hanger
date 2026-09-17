@@ -26,7 +26,7 @@ from .config import (
     SILENCE_GAP_LEN_S,
 )
 from .engine import iter_frames, mux_output
-from .stems import SR as STEM_SR
+from .stems import SR as STEM_SR   # default rate; files may store their own
 from .store import Clip, Job, Render
 
 FPS_AUDIO = 48000
@@ -36,13 +36,14 @@ FPS_AUDIO = 48000
 # helpers
 # ---------------------------------------------------------------------------
 
-def _audio_at(stem: np.ndarray, t_local: np.ndarray) -> np.ndarray:
-    """Sample a clip-local stem (mono 48k) at arbitrary local times."""
+def _audio_at(stem: np.ndarray, t_local: np.ndarray,
+              sr: int = STEM_SR) -> np.ndarray:
+    """Sample a clip-local stem (mono) at arbitrary local times."""
     if stem is None or stem.size == 0:
         return np.zeros_like(t_local)
     n = stem.size
-    t = np.clip(t_local, 0, max(0.0, (n - 1) / STEM_SR))
-    x = t * STEM_SR
+    t = np.clip(t_local, 0, max(0.0, (n - 1) / sr))
+    x = t * sr
     i = np.floor(x).astype(np.int64)
     i = np.clip(i, 0, n - 2)
     f = (x - i).astype(np.float32)
@@ -276,12 +277,20 @@ def build_plan(job: Job, clip: Clip, template: str, options: Dict[str, Any],
     stems_path = os.path.join(job_dir, "stems.npz")
     if os.path.exists(stems_path):
         data = np.load(stems_path)
-        t0s = int(plan["t0"] * STEM_SR)
-        t1s = int(plan["t1"] * STEM_SR)
+        try:                       # separation rate is stored with the file
+            stem_sr = int(data["sr"]) if "sr" in data.files else STEM_SR
+        except Exception:
+            stem_sr = STEM_SR
+        t0s = int(plan["t0"] * stem_sr)
+        t1s = int(plan["t1"] * stem_sr)
+        def _f32(a: np.ndarray) -> np.ndarray:
+            return (a.astype(np.float32) / 32767.0) if a.dtype == np.int16 else a
+
         plan["stems"] = {
-            "dialogue": data["dialogue"][t0s:t1s],
-            "music": data["music"][t0s:t1s],
-            "sfx": data["sfx"][t0s:t1s],
+            "sr": stem_sr,
+            "dialogue": _f32(data["dialogue"][t0s:t1s]),
+            "music": _f32(data["music"][t0s:t1s]),
+            "sfx": _f32(data["sfx"][t0s:t1s]),
         }
         env = job.stems.get("env", {})
         i0 = int(plan["t0"] / 0.05)
@@ -392,9 +401,10 @@ def build_audio(plan: Dict[str, Any]) -> Tuple[Optional[np.ndarray], Dict[str, A
     stems = plan["stems"]
     dlg = mus = sfx = None
     if stems is not None:
-        dlg = _audio_at(stems["dialogue"], t_src_local)
-        mus = _audio_at(stems["music"], t_src_local)
-        sfx = _audio_at(stems["sfx"], t_src_local)
+        ssr = int(stems.get("sr", STEM_SR))
+        dlg = _audio_at(stems["dialogue"], t_src_local, ssr)
+        mus = _audio_at(stems["music"], t_src_local, ssr)
+        sfx = _audio_at(stems["sfx"], t_src_local, ssr)
     else:
         # no separation available: treat the whole track as dialogue, music unknown
         raw = plan.get("raw_mix")

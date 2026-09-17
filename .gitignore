@@ -1,20 +1,30 @@
-<<<<<<< HEAD
 # Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
+backend/.venv/
+backend/data/
 
 # Node
 node_modules/
+.next/
 frontend/.next/
 frontend/out/
+out/
+dist/
+build/
+coverage/
 npm-debug.log*
 
-# Runtime data (videos, renders, jobs) — never commit media
-backend/data/
+# Runtime media (videos, renders, jobs) — never commit media
 data/
+clips/
+*.mp4
+*.webm
+*.mkv
+*.mov
 
 # Env / secrets
 .env
@@ -28,24 +38,10 @@ data/
 *.swp
 
 # Misc
-/tmp/
-dist/
-build/
-coverage/
+tmp/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-=======
-node_modules
-.next
-dist
-.env
-.env.local
-__pycache__
-*.pyc
-clips/
-*.mp4
-*.webm
-.venv
-venv
->>>>>>> cb855680d26e8141ce0d2a71748aa507d6c08e93
+
+# TS
+*.tsbuildinfo

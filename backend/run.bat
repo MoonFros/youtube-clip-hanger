@@ -1,26 +1,28 @@
 @echo off
-REM Run from backend folder OR root
-cd /d "%~dp0.."
-echo === YouTube Clip Hanger Backend ===
-echo Current dir: %CD%
+REM FairClip backend only (port 8000).
+REM Prefer the root run.bat which starts backend + frontend together.
+setlocal
+cd /d "%~dp0"
 
-echo.
-echo [1/2] Installing Python deps (Windows fix for av build error)...
-python -m pip install -r backend\requirements.txt
-if %errorlevel% neq 0 (
-  echo Trying Windows minimal...
-  python -m pip install -r backend\requirements-windows.txt
+set PY=python
+where python >nul 2>nul || set PY=py
+
+if not exist ".venv" (
+  echo [setup] creating backend\.venv ...
+  %PY% -m venv .venv
 )
-if %errorlevel% neq 0 (
-  python -m pip install --only-binary=:all: -r backend\requirements.txt
-)
-if %errorlevel% neq 0 (
-  pip3 install -r backend\requirements.txt
+if not exist ".venv\.deps-ok" (
+  echo [setup] installing python deps ^(one time, ~2 min^)...
+  .venv\Scripts\python.exe -m pip install --upgrade pip
+  .venv\Scripts\python.exe -m pip install -r requirements.txt
+  if errorlevel 1 (
+    echo.
+    echo [error] pip install failed - see the troubleshooting section of README.md
+    pause
+    exit /b 1
+  )
+  echo ok> ".venv\.deps-ok"
 )
 
-echo.
-echo [2/2] Starting backend on http://0.0.0.0:8000 ...
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-if %errorlevel% neq 0 (
-  py -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-)
+echo FairClip API -^> http://localhost:8000/api/health
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000

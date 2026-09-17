@@ -1,16 +1,20 @@
-<<<<<<< HEAD
 #!/usr/bin/env bash
-# FairClip backend dev server
-set -e
+# FairClip backend only (port 8000). Prefer the root ./run.sh which starts
+# backend + frontend together.
+set -euo pipefail
 cd "$(dirname "$0")"
+
+PY="${PYTHON:-python3}"
 if [ ! -d .venv ]; then
-  python3 -m venv .venv
-  .venv/bin/pip install -r requirements.txt
+  echo "[setup] creating backend/.venv ..."
+  "$PY" -m venv .venv
 fi
-exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
-=======
-#!/bin/bash
-# Run from backend folder OR root
-cd "$(dirname "$0")/.."
-python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
->>>>>>> 5363e9344f8e8978c10f2fb43b8cb754986c81f9
+if [ ! -f .venv/.deps-ok ]; then
+  echo "[setup] installing python deps ..."
+  .venv/bin/python -m pip install --upgrade pip >/dev/null
+  .venv/bin/python -m pip install -r requirements.txt
+  touch .venv/.deps-ok
+fi
+
+echo "FairClip API -> http://localhost:${PORT:-8000}/api/health"
+exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

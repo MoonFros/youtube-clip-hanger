@@ -1,3 +1,5 @@
+# FairClip backend — core runtime.
+# Everything here has prebuilt wheels on Windows/macOS/Linux for Python 3.11/3.12.
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
@@ -6,6 +8,17 @@ av>=12.0,<13
 pillow>=10.0
 httpx>=0.27
 yt-dlp>=2024.4.9
-faster-whisper>=1.0
-piper-tts>=1.2
-espeakng-loader>=0.1
+
+# Optional but recommended: a system ffmpeg (NOT a pip package) is used for
+# fast preview transcodes / audio extraction when it is on PATH. Without it the
+# backend falls back to the slower pure-PyAV path - still fully functional.
+#   Windows:  winget install Gyan.FFmpeg      (or: choco install ffmpeg)
+#   macOS:    brew install ffmpeg
+#   Linux:    sudo apt install ffmpeg
+
+# NOTE: do NOT add piper-tts / espeakng-loader here. Nothing in the code uses
+# them (the bookend voice is the vendored meSpeak engine in backend/tts/) and
+# their native dependency piper-phonemize has no Windows wheels, which used to
+# make `pip install -r backend/requirements.txt` fail on Windows and silently
+# drop users onto the old legacy backend. See requirements-ai.txt for optional
+# extras.

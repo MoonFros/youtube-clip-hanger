@@ -21,9 +21,13 @@ class Job:
     id: str
     source_type: str                    # upload | url | link | demo
     source: str = ""                    # original url / filename
-    status: str = "queued"              # queued|processing|ready|error
+    status: str = "queued"              # queued|processing|ready|error|cancelled
     stage: str = ""
     progress: float = 0.0
+    detail: str = ""                    # human readable sub-stage detail
+    cancel_requested: bool = False
+    progress_lo: float = 0.0            # window of the bar this job owns
+    progress_hi: float = 1.0
     error: str = ""
     name: str = "Untitled video"
     duration: float = 0.0
@@ -47,6 +51,7 @@ class Job:
         return {
             "id": self.id, "source_type": self.source_type, "source": self.source,
             "status": self.status, "stage": self.stage, "progress": round(self.progress, 3),
+            "detail": self.detail,
             "error": self.error, "name": self.name, "duration": round(self.duration, 2),
             "width": self.width, "height": self.height, "fps": self.fps,
             "has_audio": self.has_audio, "letterbox": self.letterbox,

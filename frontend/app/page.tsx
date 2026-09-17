@@ -22,6 +22,7 @@ export default function Landing() {
   const [linkUrl, setLinkUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [plan, setPlan] = useState<"free" | "pro">("free");
 
@@ -41,34 +42,68 @@ export default function Landing() {
 
   const start = async () => {
     setBusy(true);
+    setUploadPct(0);
     try {
       let source: any;
-      if (tab === "demo") source = { type: "demo" };
-      else if (tab === "url") source = { type: "url", url: linkUrl };
-      else if (tab === "link") source = { type: "link", url: linkUrl };
-      else {
+      if (tab === "demo") {
+        source = { type: "demo" };
+      } else if (tab === "url" || tab === "link") {
+        const clean = linkUrl.trim();
+        if (!/^https?:\/\/\S+\.\S+/.test(clean)) {
+          throw new Error("That doesn't look like a link — it should start with https://");
+        }
+        source = { type: tab, url: clean };
+      } else {
         if (!file) throw new Error("Choose a video file first");
         source = { type: "upload" };
       }
-      const j = await api<{ job_id: string }>("/api/jobs", { method: "POST", body: JSON.stringify({ source }) });
-      if (tab === "upload") {
-        const fd = new FormData();
-        fd.append("file", file);
-        const r = await fetch(url(`/api/jobs/${j.job_id}/upload`), { method: "POST", body: fd });
-        if (!r.ok) throw new Error("Upload failed: " + (await r.text()));
+
+      const j = await api<{ job_id: string }>("/api/jobs", {
+        method: "POST",
+        body: JSON.stringify({ source }),
+      });
+      if (!j?.job_id) throw new Error("The backend did not return a job id — is FairClip running on port 8000?");
+
+      if (tab === "upload" && file) {
+        await uploadWithProgress(`/api/jobs/${j.job_id}/upload`, file, setUploadPct);
       }
       router.push(`/job/${j.job_id}`);
     } catch (e: any) {
       toast(e.message || "Could not start the job", "error");
       setBusy(false);
+      setUploadPct(0);
     }
   };
+
+  /** XHR instead of fetch: fetch cannot report upload progress for a 1 GB file. */
+  const uploadWithProgress = (path: string, f: File, onPct: (p: number) => void) =>
+    new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url(path));
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) onPct(Math.round((ev.loaded / ev.total) * 100));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else {
+          let msg = xhr.responseText || `HTTP ${xhr.status}`;
+          try {
+            msg = JSON.parse(xhr.responseText).detail || msg;
+          } catch {}
+          reject(new Error(`Upload failed: ${msg}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed — is the backend still running?"));
+      const fd = new FormData();
+      fd.append("file", f, f.name);
+      xhr.send(fd);
+    });
 
   const demoButton = () => {
     if (demoState === "generating")
       return (
         <span className="pulse-soft text-xs text-amber-300">
-          Crafting the demo video (first run ~1 min)…
+          Rendering the 100s demo on your machine — first run only, a few minutes…
         </span>
       );
     return (
@@ -168,8 +203,9 @@ export default function Landing() {
                 <div>
                   <p className="font-semibold text-white">“Founders & Failures” — 100s demo</p>
                   <p className="mt-1 text-xs text-zinc-400">
-                    Synthetic demo video: 10 shots, AI voiceover, music bed, SFX. Generated
-                    automatically by FairClip on first use.
+                    Synthetic 100s video: 10 shots, voiceover, music bed, SFX — rendered by
+                    FairClip itself the first time you ask for it (then cached). The job
+                    screen shows live progress.
                   </p>
                 </div>
                 {demoButton()}
@@ -204,7 +240,7 @@ export default function Landing() {
               <p className="mt-2 text-sm font-medium text-white">
                 {file ? file.name : "Drop a .mp4 / .mkv / .webm here or click to browse"}
               </p>
-              <p className="mt-1 text-xs text-zinc-500">Processed locally in your browser session — max ~200 MB</p>
+              <p className="mt-1 text-xs text-zinc-500">Stays on your machine — up to 2 GB, uploaded straight to the local backend</p>
               {file && (
                 <button
                   onClick={(e) => {
@@ -225,7 +261,11 @@ export default function Landing() {
                 disabled={busy || !file}
                 className="w-full rounded-xl bg-gradient-to-r from-accent to-cy px-4 py-3 text-sm font-bold text-white shadow-glow transition hover:brightness-110 disabled:opacity-40"
               >
-                {busy ? `Uploading ${file?.name || ""}…` : "⚡ Clip this video →"}
+                {busy
+                  ? uploadPct > 0 && uploadPct < 100
+                    ? `Uploading ${uploadPct}%…`
+                    : "Starting…"
+                  : "⚡ Clip this video →"}
               </button>
               {file && (
                 <p className="mt-2 text-center text-[11px] text-zinc-500">
@@ -245,7 +285,7 @@ export default function Landing() {
               />
               <p className="mt-2 text-xs text-zinc-500">
                 {tab === "url"
-                  ? "YouTube links are downloaded with yt-dlp when the network allows it."
+                  ? "Downloaded with yt-dlp at up to 720p (fast). If YouTube asks to \"confirm you're not a bot\", restart the backend with FAIRCLIP_COOKIES_FROM_BROWSER=chrome — see README → Troubleshooting."
                   : "Direct .mp4/.mkv URLs are downloaded straight to the editor."}
               </p>
               <button

@@ -16,43 +16,49 @@ content-ID similarity and lists one-click fixes.
 - **Export**: 720p/1080p, 30/60 fps, MP4/MOV, watermark toggle
 - **Tiers**: Free (5 clips/day, 60s max, 720p, watermark) · Pro $9 (1080p, no watermark)
 - **No ffmpeg, no database, no external services required** — PyAV + numpy/PIL do all
-  video work; Whisper/ElevenLabs/LLM hooks are optional upgrades with offline fallbacks
+  video work. A system `ffmpeg` is used automatically when it is on `PATH`: it only
+  makes the heavy stages (preview transcode, audio extraction, scene detection)
+  5–20× faster. Whisper/ElevenLabs/LLM hooks are optional upgrades with offline fallbacks
 
 ---
 
-## 1) Run locally (dev mode — 2 terminals, ~3 min)
+## 1) Run locally (one command)
 
-Prereqs: **Python 3.11** and **Node 20** on your machine.
+Prereqs: **Python 3.11+** and **Node 20+**.
 
 ```bash
 git clone https://github.com/MoonFros/youtube-clip-hanger.git
 cd youtube-clip-hanger
+./run.sh          # macOS/Linux      (Windows: double-click run.bat)
 ```
 
-**Terminal 1 — backend** (port 8000; creates its own venv automatically):
+That creates `backend/.venv`, installs both dependency sets, then starts:
+
+| Service | URL | Notes |
+|---|---|---|
+| Web UI | http://localhost:3000 | Next.js, proxies `/api` + `/media` to the backend |
+| API | http://localhost:8000/api/health | FastAPI (docs at `/docs`) |
+
+→ Open **http://localhost:3000**, click **🎬 Demo video → Clip the demo**
+(the synthetic demo is rendered on first use — a few minutes, with live progress)
+or **⬆️ Upload** your own `.mp4 / .mkv / .webm / .mov`.
+
+Useful variants: `./run.sh backend` / `./run.sh web` (one service), and
+`cd backend && ./run.sh` if you only want the API.
+
+Optional extras (both are strictly optional):
+
 ```bash
-cd backend
-./run.sh
-```
+# 1. offline word-level captions (downloads a ~150 MB model on first use)
+backend/.venv/bin/pip install -r backend/requirements-ai.txt
 
-**Terminal 2 — frontend** (port 3000; proxies /api and /media to the backend):
-```bash
-cd frontend
-npm install
-npm run dev
-```
+# 2. a system ffmpeg — the single biggest speed-up for long videos
+#    Windows: winget install Gyan.FFmpeg     macOS: brew install ffmpeg
+#    Linux:   sudo apt install ffmpeg
 
-→ Open **http://localhost:3000**. Click **🎬 Demo video → Clip the demo**
-(first time generates the 100s demo clip, ~3–5 min) or use **⬆️ Upload** to bring
-your own .mp4 / .mkv / .webm.
-
-Optional (better results, all still work without them):
-```bash
-export OPENAI_API_KEY=sk-...        # Whisper transcription + LLM hook writing
-export ELEVENLABS_API_KEY=el-...    # higher-quality TTS voices
+export OPENAI_API_KEY=sk-...        # cloud transcription + LLM hook writing
+export ELEVENLABS_API_KEY=el-...    # premium TTS voices
 ```
-Without keys: paste the transcript in the Audio tab, and the built-in offline
-voice (meSpeak) narrates the bookend.
 
 ## 2) Run locally (Docker — one command)
 
@@ -140,6 +146,16 @@ sudo caddy reload --config deploy/Caddyfile
 | `ELEVENLABS_API_KEY` | backend | — | Premium TTS voices (optional) |
 | `FAIRCLIP_WHISPER_MODEL` | backend | `base` | Whisper size: tiny/base/small/medium |
 | `FAIRCLIP_DATA` | backend | `./data` | Where jobs/media are stored |
+| `FAIRCLIP_FFMPEG` | backend | auto-detected | Explicit `ffmpeg` path (if it is not on `PATH`) |
+| `FAIRCLIP_YTDLP_MAX_HEIGHT` | backend | `720` | Max source height downloaded from YouTube |
+| `FAIRCLIP_YTDLP_FORMAT` | backend | sensible ladder | Override the yt-dlp format selector entirely |
+| `FAIRCLIP_COOKIES_FROM_BROWSER` | backend | — | `chrome`/`edge`/`firefox`: use browser cookies (fixes bot checks) |
+| `FAIRCLIP_COOKIES_FILE` | backend | — | Path to a Netscape cookies.txt instead |
+| `FAIRCLIP_MAX_SOURCE_MINUTES` | backend | `0` (all) | Only download the first N minutes of long videos |
+| `FAIRCLIP_STEMS_LONG_AFTER_S` | backend | `900` | Videos longer than this use the fast 16 kHz stem analysis |
+| `FAIRCLIP_STEMS_BLOCK_S` | backend | `20` | Stem analysis block size (memory/speed trade-off) |
+| `FAIRCLIP_WHISPER_DOWNLOAD` | backend | `1` | Set `0` to never auto-download the local Whisper model |
+| `FAIRCLIP_YTDLP_EXTRA_ARGS` | backend | — | `key=value,key=value` escape hatch for any yt-dlp option |
 
 Everything runs with **zero keys** — you just paste transcripts instead of
 auto-transcription, and the offline voice narrates the bookend.
@@ -163,7 +179,7 @@ auto-transcription, and the offline voice narrates the bookend.
 ```
 backend/            FastAPI app
   app/
-    engine.py       PyAV decode/encode, muxing (no ffmpeg)
+    engine.py       PyAV decode/encode/mux + optional ffmpeg fast paths
     analysis.py     scenes, letterbox, waveform, clip suggestion
     stems.py        STFT + HPSS dialogue/music/sfx separation
     render.py       6 template compositors, micro-cut engine, audio plan
@@ -180,6 +196,7 @@ frontend/           Next.js 14 (App Router) editor
   app/              landing, job progress, editor
   components/       PhonePreview, Timeline (canvas), panel tabs
 DEPLOYMENT.md       deeper deployment notes (Railway, Fly.io, ops, scaling)
+legacy/             the abandoned first-iteration clipper — do not run on :8000
 docker-compose.yml  single-machine production setup
 deploy/Caddyfile    TLS reverse proxy
 ```
@@ -189,9 +206,74 @@ deploy/Caddyfile    TLS reverse proxy
 ```bash
 cd backend
 .venv/bin/python tests/mk_testvideo.py      # 12s synthetic source
+.venv/bin/python tests/ingest_smoke.py      # ingest stages + timings + cancel
 .venv/bin/python tests/pipeline_test.py     # full job → render → preflight
 .venv/bin/python tests/tpl_test.py          # all 6 templates end-to-end
 ```
+
+## Troubleshooting
+
+### “Uploads fail with 422 / settings 404 / the progress bar never finishes”
+You are almost certainly talking to the **legacy single-file backend** from the
+first iteration of this project (`uvicorn backend.main:app`, the old `run.bat`) —
+it also binds port 8000 but speaks a completely different API, so the UI gets
+404/422 responses and jobs that never reach the `ready` state the UI waits for.
+
+It now lives in [`legacy/`](legacy/README.md) and must not run on 8000. Stop it,
+then start the app with `./run.sh` / `run.bat`. The web UI detects the wrong
+backend and shows a red banner if it happens again.
+
+### “A YouTube download takes forever”
+Order of stages for a URL job: **download → probe → preview transcode → scenes →
+audio profile → stems → transcript**. Every stage now reports a percentage and a
+detail line (`12/48 MB · 3.1 MB/s · ETA 1:20`), so you can always see what it is
+doing — and `Cancel job` actually stops it.
+
+What makes it fast:
+- downloads cap at **720p** (`FAIRCLIP_YTDLP_MAX_HEIGHT`) — 1080p+ doubles the
+  download *and* every analysis stage for no visible gain in a 9:16 clip;
+- 4 parallel DASH fragments + retries instead of one fragile connection;
+- a system **ffmpeg** for the transcode/audio/scene work (5–20× faster than the
+  python fallback). If you don't have it the UI says `(no ffmpeg: slow path)`;
+- the heavy analysis runs in blocks, so an hour-long video no longer needs
+  several GB of RAM (that used to thrash and look like a hang).
+
+On a slow CPU you can also help it along:
+```bash
+FAIRCLIP_MAX_SOURCE_MINUTES=20      # only fetch the first 20 min of a long video
+FAIRCLIP_STEMS_LONG_AFTER_S=300     # switch to the fast 16 kHz stem analysis sooner
+```
+
+### “YouTube says: Sign in to confirm you're not a bot”
+YouTube throttles anonymous downloads on some networks. Let yt-dlp reuse your
+browser session:
+```bash
+FAIRCLIP_COOKIES_FROM_BROWSER=chrome   # or edge / firefox / brave
+```
+(close the browser first on Windows). Alternatively export cookies to a file and
+set `FAIRCLIP_COOKIES_FILE=/path/cookies.txt`.
+
+### “pip install fails on Windows”
+`av` (PyAV) and `numpy` ship wheels for Python 3.11/3.12 — but the old
+`requirements.txt` also pulled `piper-tts`, whose native dependency has **no
+Windows wheels**, which is what used to break the install and drop you onto the
+legacy backend. Those packages are gone (the bookend voice is the vendored
+meSpeak engine, no install needed). If pip still complains:
+```bat
+python -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install --only-binary=:all: -r backend\requirements-windows.txt
+```
+
+### “Where is my data / how do I clear it”
+`backend/data/<job id>/` holds the source, preview, stems and renders;
+`backend/data/settings.json` holds the plan. Everything is deleted automatically
+after 24 h (`JOB_RETENTION_HOURS`). To wipe everything: stop the backend and
+delete `backend/data/`.
+
+### “The demo is slow to generate the first time”
+It is a real 100-second 720p video with synthesised dialogue, music and SFX,
+rendered frame-by-frame on first use (and cached in `backend/data/demo/`
+afterwards). Watch the progress bar on the job screen.
 
 ## Fair Use — read this
 

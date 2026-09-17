@@ -6,6 +6,7 @@ export type JobPublic = {
   status: string;
   stage: string;
   progress: number;
+  detail?: string;
   error: string;
   name: string;
   duration: number;
@@ -85,6 +86,7 @@ export type RenderPublic = {
   status: string;
   stage: string;
   progress: number;
+  detail?: string;
   error: string;
   duration: number;
   size: number;
@@ -103,6 +105,8 @@ export type Preflight = {
 
 export type Health = {
   ok: boolean;
+  yt_dlp?: string;
+  ffmpeg?: string;
   plan: string;
   demo_ready: boolean;
   demo_generating: boolean;
@@ -140,6 +144,11 @@ export async function api<T = any>(path: string, opts?: RequestInit): Promise<T>
   return r.json();
 }
 
+/** Cancel a running ingest/analysis job (cooperative). */
+export async function cancelJob(jobId: string): Promise<void> {
+  await api(`/api/jobs/${jobId}`, { method: "DELETE" });
+}
+
 export function fmtTime(s: number): string {
   if (!isFinite(s)) return "0:00";
   const m = Math.floor(s / 60);
@@ -148,6 +157,8 @@ export function fmtTime(s: number): string {
 }
 
 export const STAGE_LABELS: Record<string, string> = {
+  demo: "Building the demo video (first run only)",
+  downloading: "Downloading the source video",
   probing: "Reading video",
   preview: "Preparing preview",
   scenes: "Detecting scenes",

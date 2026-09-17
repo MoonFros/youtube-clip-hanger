@@ -1,24 +1,34 @@
 """Timeline analysis: scenes, letterbox, engagement scoring, waveform."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import subprocess
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
-from .config import ENVELOPE_DT, WAVEFORM_BUCKETS
-from .engine import iter_frames
+from .config import ENVELOPE_DT, ENVELOPE_SR, WAVEFORM_BUCKETS
+from .engine import _look_for_ffmpeg, iter_frames, decode_audio
 
 
-def detect_scenes(path: str, max_dim: int = 128) -> List[float]:
-    """Frame-difference scene boundary detection (PySceneDetect-style)."""
-    diffs: List[tuple] = []
-    last = None
-    for t, img in iter_frames(path, max_dim=max_dim):
-        g = np.mean(img, axis=2)
-        if last is not None:
-            d = float(np.mean(np.abs(g.astype(np.int16) - last.astype(np.int16))))
-            diffs.append((t, d))
-        last = g
+def detect_scenes(path: str, max_dim: int = 128, fps: float = 10.0,
+                  cancelled: Optional[Callable[[], bool]] = None) -> List[float]:
+    """Frame-difference scene boundary detection (PySceneDetect-style).
+
+    With ffmpeg available the whole video is decoded once, scaled to 128px tall
+    and emitted as raw grayscale frames at `fps` — decoding a 1-hour video takes
+    seconds instead of minutes, and memory stays flat.
+    """
+    ff, _ = _look_for_ffmpeg()
+    if ff:
+        try:
+            return _detect_scenes_ffmpeg(ff, path, max_dim, fps, cancelled)
+        except Exception:
+            pass
+    return _detect_scenes_pyav(path, max_dim)
+
+
+def _boundaries_from_diffs(diffs: List[tuple]) -> List[float]:
+    """diffs: [(t, mean_abs_frame_difference), ...] -> scene boundary times."""
     if not diffs:
         return []
     vals = np.array([d for _, d in diffs])
@@ -28,6 +38,70 @@ def detect_scenes(path: str, max_dim: int = 128) -> List[float]:
         if d > thr and (not boundaries or t - boundaries[-1] > 0.4):
             boundaries.append(round(float(t), 2))
     return boundaries
+
+
+def _detect_scenes_ffmpeg(ff: str, path: str, max_dim: int, fps: float,
+                          cancelled) -> List[float]:
+    vf = f"fps={fps},scale=-2:{max_dim},format=gray"
+    # Frame size is only knowable after scaling (aspect ratio is preserved), so
+    # grab one frame first; then stream the rest without buffering the video.
+    try:
+        one = subprocess.run(
+            [ff, "-nostdin", "-v", "error", "-i", str(path), "-vf", vf,
+             "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
+            capture_output=True, timeout=300).stdout
+    except subprocess.TimeoutExpired:
+        return _detect_scenes_pyav(path, max_dim)
+    if not one or len(one) % max_dim:
+        return _detect_scenes_pyav(path, max_dim)
+    h = max_dim
+    w = len(one) // h
+    fsz = w * h
+
+    cmd = [ff, "-nostdin", "-v", "error", "-i", str(path), "-vf", vf,
+           "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    assert p.stdout is not None
+    diffs: List[tuple] = []
+    prev: Optional[np.ndarray] = None
+    buf = bytearray()
+    i = 0
+    try:
+        while True:
+            chunk = p.stdout.read(fsz * 32)
+            if not chunk:
+                break
+            buf += chunk
+            n = len(buf) // fsz
+            for k in range(n):
+                frame = np.frombuffer(bytes(buf[k * fsz:(k + 1) * fsz]),
+                                      dtype=np.uint8).reshape(h, w)
+                if prev is not None:
+                    d = float(np.mean(np.abs(frame.astype(np.int16)
+                                             - prev.astype(np.int16))))
+                    diffs.append((i / fps, d))
+                prev = frame
+                i += 1
+            del buf[:n * fsz]
+            if cancelled and cancelled():
+                p.kill()
+                raise RuntimeError("cancelled")
+    finally:
+        p.stdout.close()
+        p.wait()
+    return _boundaries_from_diffs(diffs)
+
+
+def _detect_scenes_pyav(path: str, max_dim: int) -> List[float]:
+    diffs: List[tuple] = []
+    prev: Optional[np.ndarray] = None
+    for t, img in iter_frames(path, max_dim=max_dim):
+        g = np.mean(img, axis=2)
+        if prev is not None:
+            diffs.append((t, float(np.mean(np.abs(g.astype(np.int16)
+                                               - prev.astype(np.int16))))))
+        prev = g
+    return _boundaries_from_diffs(diffs)
 
 
 def detect_letterbox(path: str) -> Dict[str, int]:
@@ -62,31 +136,49 @@ def detect_letterbox(path: str) -> Dict[str, int]:
     return {"top": int(top), "bottom": int(bottom)}
 
 
-def audio_envelope(path: str, buckets: int = WAVEFORM_BUCKETS) -> Dict[str, List[float]]:
-    """Downsampled audio profile for the timeline UI (RMS + low/mid/high bands)."""
-    from .engine import decode_audio
-    x, sr = decode_audio(path, sr=48000, mono=True)
+def audio_envelope(path: str, buckets: int = WAVEFORM_BUCKETS,
+                   progress_cb: Optional[Callable[[float], None]] = None
+                   ) -> Dict[str, List[float]]:
+    """Downsampled audio profile for the timeline UI (RMS + low/mid/high bands).
+
+    Runs in blocks: the old version FFT'd the whole track at once, which for an
+    hour-long video meant a ~1.5 GB temporary array (swap thrash / OOM). Block
+    size is bounded, so memory is flat no matter how long the video is.
+    """
+    empty = {"rms": [], "low": [], "mid": [], "high": [], "dt": ENVELOPE_DT}
+    x, sr = decode_audio(path, sr=ENVELOPE_SR, mono=True)
     if x.size == 0:
-        return {"rms": [], "low": [], "mid": [], "high": [], "dt": ENVELOPE_DT}
+        return empty
     x = x[0]
-    # short STFT band energies (vectorized)
-    n_fft, hop = 1024, 960  # ~20ms
-    n = 1 + (len(x) - n_fft) // hop
-    if n <= 0:
-        n = 1
-    idx = np.arange(n_fft)[None, :] + hop * np.arange(n)[:, None]
-    idx = np.minimum(idx, len(x) - 1)
+    n_fft = 2048 if sr > 24000 else 1024
+    hop = max(64, int(round(0.02 * sr)))      # ~20 ms analysis window
     win = np.hanning(n_fft).astype(np.float32)
-    spec = np.fft.rfft(x[idx] * win[None, :], axis=1)
-    mag2 = (spec * spec.conj()).real
     f = np.fft.rfftfreq(n_fft, 1.0 / sr)
-    low = mag2[:, f < 300].sum(axis=1)
-    mid = mag2[:, (f >= 300) & (f < 4500)].sum(axis=1)
-    high = mag2[:, f >= 6000].sum(axis=1)
-    rms = np.sqrt((x[: n * hop].reshape(n, -1) ** 2).mean(axis=1))
-    rms = np.sqrt(rms**2)
-    band_rms = lambda e: np.sqrt(np.maximum(e, 0))  # noqa: E731
-    low_r, mid_r, high_r = band_rms(low), band_rms(mid), band_rms(high)
+    b_low = f < 300
+    b_mid = (f >= 300) & (f < 4500)
+    b_high = f >= 6000
+    block = max(n_fft * 4, int(sr * 120))     # ~2 min of audio per block
+    n_blocks = max(1, (len(x) + block - 1) // block)
+    lows, mids, highs, rmss = [], [], [], []
+    for b in range(n_blocks):
+        seg = x[b * block:(b + 1) * block]
+        if seg.size < n_fft:
+            seg = np.pad(seg, (0, n_fft - seg.size))
+        n = 1 + (len(seg) - n_fft) // hop
+        idx = np.arange(n_fft)[None, :] + hop * np.arange(n)[:, None]
+        idx = np.minimum(idx, len(seg) - 1)
+        spec = np.fft.rfft(seg[idx] * win[None, :], axis=1)
+        mag2 = (spec * spec.conj()).real
+        lows.append(mag2[:, b_low].sum(axis=1))
+        mids.append(mag2[:, b_mid].sum(axis=1))
+        highs.append(mag2[:, b_high].sum(axis=1))
+        rmss.append(np.sqrt((seg[: n * hop].reshape(n, -1) ** 2).mean(axis=1)))
+        if progress_cb:
+            progress_cb((b + 1) / n_blocks)
+    ep = lambda e: np.sqrt(np.maximum(np.concatenate(e), 0))  # noqa: E731
+    low_r, mid_r, high_r = ep(lows), ep(mids), ep(highs)
+    rms = np.concatenate(rmss)
+    n = len(rms)
     scale = np.max(rms) + 1e-9
     idx2 = (np.linspace(0, 1, buckets) * (n - 1)).astype(int)
     return {
