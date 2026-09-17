@@ -22,7 +22,8 @@ if [ "$WHAT" = "all" ] || [ "$WHAT" = "backend" ]; then
   if [ ! -f backend/.venv/.deps-ok ]; then
     echo "[setup] installing python deps (one time, ~2 min)..."
     "$VENV_PY" -m pip install --upgrade pip >/dev/null
-    "$VENV_PY" -m pip install -r backend/requirements.txt
+    "$VENV_PY" -m pip install -r backend/requirements.txt \
+        --only-binary=av,numpy,pillow,yt-dlp
     touch backend/.venv/.deps-ok
   fi
 fi

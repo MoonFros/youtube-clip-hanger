@@ -23,15 +23,98 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 import av
 import numpy as np
 
-PULL_ERRS = (
-    av.error.EOFError,
-    av.error.BlockingIOError,
-    av.error.BugError,
-    av.error.ExitError,
-    av.error.BrokenPipeError,
-    av.error.ProcessLookupError,
-    av.error.TimeoutError,
+def _error_classes(*names: str) -> tuple:
+    """Collect the error types that mean "the decoder ran dry" by name.
+
+    PyAV renames/removes some of these between major versions, so a missing one
+    must never break the import (a module-level tuple of av.error.* attributes
+    is exactly how the backend used to refuse to start on a new av).
+    """
+    out = []
+    for n in names:
+        cls = getattr(av.error, n, None)
+        if isinstance(cls, type) and issubclass(cls, Exception):
+            out.append(cls)
+    if not out:                       # last resort, always present
+        out.append(av.error.FFmpegError)
+    return tuple(out)
+
+
+PULL_ERRS = _error_classes(
+    "EOFError", "BlockingIOError", "BugError", "ExitError", "BrokenPipeError",
+    "ProcessLookupError", "TimeoutError",
 )
+
+
+def av_version() -> str:
+    return getattr(av, "__version__", "?")
+
+
+def layout_name(channels: int) -> str:
+    """PyAV layout string for a channel count."""
+    if channels == 1:
+        return "mono"
+    if channels == 2:
+        return "stereo"
+    return f"{channels}c"
+
+
+def audio_frame_to_float(frame) -> np.ndarray:
+    """Decoded AudioFrame -> (channels, samples) float32, on any PyAV version.
+
+    av <= 14 let you ask for a format explicitly (`to_ndarray(format="fltp")`);
+    from av 15 on the array follows the frame's own sample format, so packed and
+    planar formats have to be normalised by hand here.
+    """
+    fmt = getattr(getattr(frame, "format", None), "name", "") or "fltp"
+    try:
+        arr = frame.to_ndarray(format="fltp")        # av <= 14
+    except TypeError:
+        arr = frame.to_ndarray()                     # av >= 15
+    arr = np.asarray(arr)
+    planar = fmt.endswith("p") or "planar" in fmt
+    base = fmt.rstrip("p").lower()
+    if arr.dtype == np.float32:
+        out = arr
+    elif arr.dtype == np.float64:
+        out = arr.astype(np.float32)
+    elif base == "s16":
+        out = arr.astype(np.float32) / 32768.0
+    elif base == "s32":
+        out = arr.astype(np.float32) / 2147483648.0
+    elif base == "u8":
+        out = (arr.astype(np.float32) - 128.0) / 128.0
+    else:
+        out = arr.astype(np.float32)
+    if out.ndim == 1:
+        out = out.reshape(1, -1)
+    elif out.shape[0] == 1 and not planar:
+        # packed: one row holding all channels interleaved
+        n = getattr(frame, "layout", None)
+        try:
+            ch = len(n.channels)
+        except Exception:
+            ch = 0
+        if ch > 1 and out.shape[1] % ch == 0:
+            out = out.reshape(-1, ch).T
+        else:
+            out = out.reshape(1, -1)
+    return np.ascontiguousarray(out, dtype=np.float32)
+
+
+def set_audio_layout(stream, channels: int) -> None:
+    """Tell an audio encoder how many channels we feed it.
+
+    av 12 wants `stream.channels = n`; from av 13 on that attribute is
+    read-only and the layout is set as a string (or an av.AudioLayout).
+    """
+    if 1 <= channels <= 8:
+        try:
+            stream.layout = layout_name(channels)     # av >= 13
+            return
+        except Exception:
+            pass
+    stream.channels = int(channels)                   # av <= 12
 
 class OperationCancelled(RuntimeError):
     """Raised when the caller's `cancelled()` callback says to stop."""
@@ -66,15 +149,20 @@ def ffmpeg_available() -> bool:
 
 
 def ffmpeg_version() -> str:
+    """Short version string, e.g. "7.0.2-static" ("" when ffmpeg is absent)."""
     ff, _ = _look_for_ffmpeg()
     if not ff:
         return ""
     try:
         out = subprocess.run([ff, "-version"], capture_output=True, text=True,
                              timeout=10).stdout
-        return out.splitlines()[0][:80] if out else ""
     except Exception:
         return ""
+    first = (out or "").splitlines()[0] if out else ""
+    parts = first.split()
+    if len(parts) >= 3 and parts[0] == "ffmpeg" and parts[1] == "version":
+        return parts[2]
+    return first[:60]
 
 
 def _run(cmd: List[str], timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -250,13 +338,10 @@ def _decode_audio_pyav(path: str, sr: int = 48000,
     c = av.open(path)
     chunks: List[np.ndarray] = []
     src_sr = sr
-    has = False
     try:
         for frame in c.decode(audio=0):
-            has = True
             src_sr = frame.sample_rate
-            arr = frame.to_ndarray(format="fltp")  # (ch, n) float32
-            chunks.append(arr)
+            chunks.append(audio_frame_to_float(frame))
     finally:
         c.close()
     if not chunks:
@@ -410,7 +495,7 @@ def mux_output(
     ast = None
     if audio is not None and audio.size:
         ast = c.add_stream("aac", rate=audio_sr)
-        ast.channels = int(audio.shape[0])
+        set_audio_layout(ast, int(audio.shape[0]))
         ast.bit_rate = 192_000
 
     spf = audio_sr // fps if ast is not None else 0
@@ -422,7 +507,9 @@ def mux_output(
         if ast is not None and n * spf < audio.shape[1]:
             chunk = audio[:, n * spf:(n + 1) * spf]
             if chunk.size:
-                af = av.AudioFrame.from_ndarray(chunk, format="fltp")
+                af = av.AudioFrame.from_ndarray(
+                    np.ascontiguousarray(chunk, dtype=np.float32), format="fltp",
+                    layout=layout_name(chunk.shape[0]))
                 af.sample_rate = audio_sr
                 af.pts = n * spf
                 for p in ast.encode(af):
@@ -436,7 +523,9 @@ def mux_output(
         # flush remaining audio
         left = audio[:, n * spf:] if audio is not None else None
         if left is not None and left.size:
-            af = av.AudioFrame.from_ndarray(left, format="fltp")
+            af = av.AudioFrame.from_ndarray(
+                np.ascontiguousarray(left, dtype=np.float32), format="fltp",
+                layout=layout_name(left.shape[0]))
             af.sample_rate = audio_sr
             af.pts = n * spf
             for p in ast.encode(af):

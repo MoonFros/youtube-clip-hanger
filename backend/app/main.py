@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api import media_router, router
 from .config import DATA_DIR, JOB_RETENTION_HOURS
+from .engine import av_version, ffmpeg_version
 from .store import STORE
 
 
@@ -36,8 +37,28 @@ async def _cleanup_loop() -> None:
             pass
 
 
+def _print_banner() -> None:
+    """One line per dependency at startup - the first thing to check when a
+    download or a render misbehaves."""
+    import sys
+    try:
+        from importlib.metadata import version
+        ytdlp = version("yt-dlp")
+    except Exception:
+        ytdlp = "missing"
+    print(
+        "[fairclip] "
+        f"python {sys.version.split()[0]} ({'64' if sys.maxsize > 2**32 else '32'}-bit) | "
+        f"pyav {av_version()} | yt-dlp {ytdlp} | "
+        f"ffmpeg {ffmpeg_version() or 'not found (slower pure-PyAV paths)'} | "
+        f"data {DATA_DIR}",
+        flush=True,
+    )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    _print_banner()
     task = asyncio.create_task(_cleanup_loop())
     yield
     task.cancel()

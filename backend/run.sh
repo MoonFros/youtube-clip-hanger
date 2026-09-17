@@ -12,7 +12,8 @@ fi
 if [ ! -f .venv/.deps-ok ]; then
   echo "[setup] installing python deps ..."
   .venv/bin/python -m pip install --upgrade pip >/dev/null
-  .venv/bin/python -m pip install -r requirements.txt
+  .venv/bin/python -m pip install -r requirements.txt \
+      --only-binary=av,numpy,pillow,yt-dlp
   touch .venv/.deps-ok
 fi
 

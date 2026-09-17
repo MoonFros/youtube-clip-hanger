@@ -83,6 +83,32 @@ def _ffmpeg_version() -> str:
         return ""
 
 
+def _ffmpeg_path() -> str:
+    try:
+        from .engine import _look_for_ffmpeg
+        return _look_for_ffmpeg()[0] or ""
+    except Exception:
+        return ""
+
+
+def _runtime_info() -> Dict[str, str]:
+    import sys
+    bits = 64 if getattr(sys, "maxsize", 0) > 2 ** 32 else 32
+    out = {"python": sys.version.split()[0],
+           "executable": sys.executable,
+           "platform": f"{sys.platform}-{bits}bit"}
+    try:
+        from .engine import av_version
+        out["pyav"] = av_version()
+    except Exception:
+        out["pyav"] = ""
+    try:
+        out["numpy"] = __import__("numpy").__version__
+    except Exception:
+        out["numpy"] = ""
+    return out
+
+
 def _get_job_or_404(job_id: str):
     job = STORE.get_job(job_id)
     if job is None:
@@ -110,6 +136,8 @@ def health():
         "demo_error": demo_state["error"],
         "yt_dlp": _ytdlp_version(),
         "ffmpeg": _ffmpeg_version(),
+        "ffmpeg_path": _ffmpeg_path(),
+        "runtime": _runtime_info(),
         "tts_voices": {k: {"label": v[2], "desc": v[3]} for k, v in TTS_VOICES.items()},
         "hook_styles": HOOK_STYLES,
         "tiers": {k: v for k, v in TIERS.items()},

@@ -1,15 +1,18 @@
-# Windows fallback — same runtime as requirements.txt, but pinned to versions
-# that are guaranteed to have prebuilt win_amd64 wheels (no C++ build tools).
-# Use it only if `pip install -r requirements.txt` fails on Windows:
+# Windows fallback — same runtime as requirements.txt, pinned to the widest
+# win_amd64 wheel coverage (Python 3.10-3.14). Use it only if
+# `pip install -r requirements.txt` fails on Windows:
 #
 #   python -m venv backend\.venv
-#   backend\.venv\Scripts\python.exe -m pip install --only-binary=:all: -r backend\requirements-windows.txt
+#   backend\.venv\Scripts\python.exe -m pip install -U pip
+#   backend\.venv\Scripts\python.exe -m pip install --only-binary=av,numpy,pillow,yt-dlp -r backend\requirements-windows.txt
+#
+# Needs 64-bit Python: PyAV publishes no 32-bit Windows wheels.
 #
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 numpy>=1.26,<3
-av>=12.1,<13
+av>=12.0,<17
 pillow>=10.0
 httpx>=0.27
 yt-dlp>=2024.4.9

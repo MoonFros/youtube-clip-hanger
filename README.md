@@ -24,7 +24,8 @@ content-ID similarity and lists one-click fixes.
 
 ## 1) Run locally (one command)
 
-Prereqs: **Python 3.11+** and **Node 20+**.
+Prereqs: **64-bit Python 3.11–3.14** and **Node 20+**.
+(The video engine ships prebuilt 64-bit wheels only — see Troubleshooting.)
 
 ```bash
 git clone https://github.com/MoonFros/youtube-clip-hanger.git
@@ -283,6 +284,28 @@ FAIRCLIP_COOKIES_FROM_BROWSER=chrome   # or edge / firefox / brave
 (close the browser first on Windows). Alternatively export cookies to a file and
 set `FAIRCLIP_COOKIES_FILE=/path/cookies.txt`.
 
+### Windows: `error: Microsoft Visual C++ 14.0 or greater is required` / `Failed building wheel for av`
+That error means pip found **no prebuilt wheel for your interpreter** and tried to
+compile FFmpeg (PyAV) from source. Two causes:
+
+1. **32-bit Python.** PyAV publishes *no* 32-bit Windows wheels. Install 64-bit
+   Python from python.org, delete `backend\.venv`, run `run.bat` again.
+2. **A Python version newer than the wheel the pin allowed.** `av` ships one
+   wheel per Python version (cp313 arrived in av 13.1, cp314 in av 15.1), and the
+   old pin capped the range below those — so Python 3.13/3.14 users were forced
+   into a source build. The requirement is now `av>=12,<17`, which covers
+   Python 3.11 → 3.14, and the code is tested against 12, 13, 15 and 16.
+
+`run.bat` now prints which Python it found and installs with
+`--only-binary=av,numpy,pillow,yt-dlp` so a missing wheel fails in seconds with a
+readable message instead of a ten-minute compiler dump. The manual equivalent:
+
+```bat
+py -3.12 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install -U pip
+backend\.venv\Scripts\python.exe -m pip install --only-binary=av,numpy,pillow,yt-dlp -r backend\requirements.txt
+```
+
 ### “pip install fails on Windows”
 `av` (PyAV) and `numpy` ship wheels for Python 3.11/3.12 — but the old
 `requirements.txt` also pulled `piper-tts`, whose native dependency has **no
@@ -293,6 +316,18 @@ meSpeak engine, no install needed). If pip still complains:
 python -m venv backend\.venv
 backend\.venv\Scripts\python.exe -m pip install --only-binary=:all: -r backend\requirements-windows.txt
 ```
+
+### Checking what the backend actually loaded
+Every start prints one line, and `/api/health` reports the same thing:
+
+```
+[fairclip] python 3.12.4 (64-bit) | pyav 16.0.1 | yt-dlp 2026.8.19 | ffmpeg 7.0.2 | data .../backend/data
+```
+```bash
+curl -s http://localhost:8000/api/health | python3 -m json.tool | head -20
+```
+Useful when a render fails: `pyav` tells you which video engine is in use and
+`ffmpeg` whether the fast paths are active (empty = pure-PyAV fallback).
 
 ### “Where is my data / how do I clear it”
 `backend/data/<job id>/` holds the source, preview, stems and renders;
