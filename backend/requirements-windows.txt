@@ -1,0 +1,6 @@
+# Windows-friendly - no compilation needed
+fastapi
+uvicorn
+pydantic
+python-multipart
+yt-dlp
