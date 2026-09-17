@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
@@ -9,3 +10,13 @@ yt-dlp>=2024.4.9
 faster-whisper>=1.0
 piper-tts>=1.2
 espeakng-loader>=0.1
+=======
+# Minimal deps that work on Windows Python 3.13 without C++ Build Tools
+# uvicorn[standard] needs Microsoft Visual C++ 14.0 for httptools/uvloop/av
+# Use plain uvicorn for Windows, or install Build Tools if you want standard
+fastapi==0.110.0
+uvicorn==0.29.0
+pydantic==2.6.0
+python-multipart==0.0.9
+yt-dlp==2024.5.27
+>>>>>>> 251a1dd08bef310452438bf1c8adc3fc20963dad

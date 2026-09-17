@@ -5,8 +5,15 @@ echo === YouTube Clip Hanger Backend ===
 echo Current dir: %CD%
 
 echo.
-echo [1/2] Installing Python deps...
+echo [1/2] Installing Python deps (Windows fix for av build error)...
 python -m pip install -r backend\requirements.txt
+if %errorlevel% neq 0 (
+  echo Trying Windows minimal...
+  python -m pip install -r backend\requirements-windows.txt
+)
+if %errorlevel% neq 0 (
+  python -m pip install --only-binary=:all: -r backend\requirements.txt
+)
 if %errorlevel% neq 0 (
   pip3 install -r backend\requirements.txt
 )
