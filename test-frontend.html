@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Backend - YouTube Clip Hanger</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #111; color: #eee; }
+    input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+    button { background: white; color: black; border: none; cursor: pointer; font-weight: bold; }
+    .log { background: #222; padding: 10px; margin-top: 20px; white-space: pre-wrap; font-family: monospace; font-size: 12px; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Test Backend Fix</h1>
+  <p>If backend is running on :8000, these buttons should work.</p>
+  
+  <h3>1. Health Check</h3>
+  <button onclick="testHealth()">GET /api/health</button>
+  
+  <h3>2. Create Clip (CORRECT format)</h3>
+  <input id="url" placeholder="YouTube URL" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+  <input id="start" placeholder="Start" value="00:00:05">
+  <input id="end" placeholder="End" value="00:00:15">
+  <button onclick="testCreate()">POST /api/jobs with {url, start_time, end_time}</button>
+  
+  <h3>3. Create Clip (OLD broken format - will show your error)</h3>
+  <button onclick="testBroken()">POST /api/jobs with {source: {type: upload}} - BROKEN</button>
+  
+  <div id="log" class="log">Logs will appear here...</div>
+
+<script>
+  const logEl = document.getElementById('log');
+  function log(msg, isErr) {
+    logEl.innerHTML += `\n${isErr ? '❌' : '✅'} ${msg}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function testHealth() {
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      log(`Health ${res.status}: ${JSON.stringify(data)}`, !res.ok);
+    } catch(e) {
+      log(`Health failed: ${e.message}`, true);
+    }
+  }
+
+  async function testCreate() {
+    const url = document.getElementById('url').value;
+    const start = document.getElementById('start').value;
+    const end = document.getElementById('end').value;
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url, start_time: start, end_time: end })
+      });
+      const data = await res.json();
+      log(`Create ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
+    } catch(e) {
+      log(`Create failed: ${e.message}`, true);
+    }
+  }
+
+  async function testBroken() {
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ source: { type: 'upload' } })
+      });
+      const data = await res.json();
+      log(`Broken format ${res.status}: ${JSON.stringify(data, null, 2)}`, !res.ok);
+    } catch(e) {
+      log(`Broken failed: ${e.message}`, true);
+    }
+  }
+</script>
+</body>
+</html>
