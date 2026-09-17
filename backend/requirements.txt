@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
@@ -10,10 +9,3 @@ yt-dlp>=2024.4.9
 faster-whisper>=1.0
 piper-tts>=1.2
 espeakng-loader>=0.1
-=======
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-pydantic==2.6.0
-python-multipart==0.0.9
-yt-dlp==2024.5.27
->>>>>>> cb855680d26e8141ce0d2a71748aa507d6c08e93
