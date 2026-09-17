@@ -44,7 +44,9 @@ That creates `backend/.venv`, installs both dependency sets, then starts:
 or **⬆️ Upload** your own `.mp4 / .mkv / .webm / .mov`.
 
 Useful variants: `./run.sh backend` / `./run.sh web` (one service), and
-`cd backend && ./run.sh` if you only want the API.
+`cd backend && ./run.sh` if you only want the API. While editing backend code,
+`FAIRCLIP_RELOAD=1 ./run.sh` (or `set FAIRCLIP_RELOAD=1` on Windows) restarts
+the API on every change — the UI rides through those restarts.
 
 Optional extras (both are strictly optional):
 
@@ -222,6 +224,34 @@ it also binds port 8000 but speaks a completely different API, so the UI gets
 It now lives in [`legacy/`](legacy/README.md) and must not run on 8000. Stop it,
 then start the app with `./run.sh` / `run.bat`. The web UI detects the wrong
 backend and shows a red banner if it happens again.
+
+### Frontend log: `Failed to proxy http://127.0.0.1:8000/api/… Error: socket hang up (ECONNRESET)`
+That message comes from the **Next.js dev server**, not from FairClip: its proxy
+lost the connection to the API on port 8000 while forwarding a browser request.
+It is almost always one of these:
+
+1. **A stale backend from before the cleanup is still running.** If you ever
+   started the old app (`uvicorn backend.main:app --reload`, or `run.bat` from an
+   older checkout), that process is gone from the repo now — `--reload` crashes
+   as soon as it tries to reload, the port accepts and immediately drops
+   connections, and every `/api` call fails exactly like this. Close every old
+   terminal (`Ctrl+C`), check for leftovers with
+   `netstat -ano | findstr :8000`, then start fresh with `run.bat` / `./run.sh`.
+2. **The backend was restarted or is still booting.** Requests during a restart
+   fail; the UI reconnects by itself (it re-checks `/api/health` every 10s and
+   shows a red banner with a **Retry now** button meanwhile).
+3. **A keep-alive race in dev** — uvicorn's default 5s idle timeout can close a
+   connection exactly when Next reuses it. The bundled scripts start uvicorn with
+   `--timeout-keep-alive 75` to avoid it.
+
+Quick check:
+```bash
+curl http://localhost:8000/api/health
+# {"ok":true,...}                      -> backend fine, ignore the proxy noise
+# {"detail":"Not Found"} / connection refused / empty -> it is not running
+```
+The UI also tells you which side is broken: an **old backend** is detected (it
+answers `/api/health` with a different shape) and reported in a red banner.
 
 ### “A YouTube download takes forever”
 Order of stages for a URL job: **download → probe → preview transcode → scenes →

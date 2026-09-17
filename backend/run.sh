@@ -17,4 +17,11 @@ if [ ! -f .venv/.deps-ok ]; then
 fi
 
 echo "FairClip API -> http://localhost:${PORT:-8000}/api/health"
-exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+# FAIRCLIP_RELOAD=1 restarts the server whenever a python file changes (handy
+# while editing the backend). Expect a few seconds of failed requests after each
+# reload - the UI tolerates that, it only matters for in-flight jobs.
+RELOAD=""
+[ "${FAIRCLIP_RELOAD:-0}" = "1" ] && RELOAD="--reload"
+
+exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 \
+    --port "${PORT:-8000}" --timeout-keep-alive 75 $RELOAD

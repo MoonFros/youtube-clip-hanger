@@ -39,8 +39,11 @@ trap cleanup EXIT INT TERM
 
 if [ "$WHAT" = "all" ] || [ "$WHAT" = "backend" ]; then
   echo "[1/2] backend  -> http://localhost:8000/api/health   (docs: /docs)"
+  # --timeout-keep-alive: the Next dev proxy reuses connections; uvicorn's 5s
+  # default can close one exactly as it is reused -> "socket hang up" in the
+  # frontend log. 75s removes that race.
   backend/.venv/bin/python -m uvicorn backend.app.main:app \
-      --host 0.0.0.0 --port 8000 &
+      --host 0.0.0.0 --port 8000 --timeout-keep-alive 75 &
 fi
 
 if [ "$WHAT" = "all" ] || [ "$WHAT" = "web" ]; then

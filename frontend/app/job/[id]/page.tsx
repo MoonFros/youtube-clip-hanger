@@ -23,10 +23,12 @@ export default function JobPage() {
   const [cancelling, setCancelling] = useState(false);
   const lastChange = useRef<number>(Date.now());
   const lastProgress = useRef<string>("");
+  const misses = useRef(0);          // consecutive failed polls
 
   const tick = useCallback(async () => {
     try {
       const j = await api<JobPublic>(`/api/jobs/${id}`);
+      misses.current = 0;
       setJob(j);
       const stamp = `${j.status}:${j.stage}:${j.progress}`;
       if (stamp !== lastProgress.current) {
@@ -41,7 +43,16 @@ export default function JobPage() {
         setError("Cancelled.");
       }
     } catch (e: any) {
-      setError(e.message || "Lost connection to the backend");
+      // A single reset (dev proxy hiccup, backend restart) must not kill the
+      // screen — only give up after several consecutive failures.
+      misses.current += 1;
+      if (misses.current >= 5) {
+        setError(
+          (e.message || "Lost connection to the backend") +
+            "\n\nThe backend on port 8000 is not answering. Check `curl http://localhost:8000/api/health` " +
+            "and restart it with ./run.sh (or run.bat) — it will reconnect by itself once it is back."
+        );
+      }
     }
   }, [id, router]);
 

@@ -25,4 +25,7 @@ if not exist ".venv\.deps-ok" (
 )
 
 echo FairClip API -^> http://localhost:8000/api/health
-.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+REM set FAIRCLIP_RELOAD=1 before running to auto-restart on code changes
+set RELOAD=
+if "%FAIRCLIP_RELOAD%"=="1" set RELOAD=--reload
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75 %RELOAD%

@@ -26,33 +26,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     typeof window !== "undefined" && !!localStorage.getItem("fairclip-disclaimer")
   );
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(url("/api/health"));
-        const h = await res.json();
-        if (!h || h.ok !== true) {
-          // The legacy single-file backend ("massreels_backend.py") answers on
-          // /api/health too, but with a completely different API — every action
-          // would fail with 404/422 and jobs that never finish. Say so loudly.
-          setBackendWarning(
-            "Something else is answering on the API port. You are most likely running the old " +
-              "legacy backend (uvicorn backend.main:app / run.bat from an older checkout) instead of " +
-              "FairClip. Stop it and start the app with ./run.sh (or run.bat) — see README → Troubleshooting."
-          );
-        } else {
-          setBackendWarning("");
-        }
-        setHealth(h);
-      } catch (e) {
-        console.error("health", e);
+  const checkHealth = useCallback(async () => {
+    try {
+      const res = await fetch(url("/api/health"), { cache: "no-store" });
+      const h = await res.json();
+      if (!h || h.ok !== true) {
+        // The legacy single-file backend ("massreels_backend.py") answers on
+        // /api/health too, but with a completely different API — every action
+        // would fail with 404/422 and jobs that never finish. Say so loudly.
         setBackendWarning(
-          "Cannot reach the FairClip backend. Start it with ./run.sh (or run.bat) and reload — " +
-            "the API must be listening on port 8000."
+          "Something else is answering on the API port. You are most likely running the old " +
+            "legacy backend (uvicorn backend.main:app / run.bat from an older checkout) instead of " +
+            "FairClip. Stop it and start the app with ./run.sh (or run.bat) — see README → Troubleshooting."
         );
+      } else {
+        setBackendWarning("");
       }
-    })();
+      setHealth(h);
+    } catch (e) {
+      console.error("health", e);
+      setBackendWarning(
+        "Cannot reach the FairClip backend (connection reset or refused). Is it still running on " +
+          "port 8000? Check with `curl http://localhost:8000/api/health`, then start it with " +
+          "./run.sh (or run.bat) — see README → Troubleshooting."
+      );
+    }
   }, []);
+
+  // Re-check regularly: a backend that restarts (or a dev proxy that hiccups)
+  // must not leave the UI stuck on a stale "cannot reach backend" banner.
+  useEffect(() => {
+    checkHealth();
+    const iv = setInterval(checkHealth, 10000);
+    return () => clearInterval(iv);
+  }, [checkHealth]);
 
   const toast = useCallback((msg: string, kind: Toast["kind"] = "info") => {
     const id = tid++;
@@ -70,8 +77,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastCtx.Provider value={{ toast, health, backendWarning, disclaimerSeen, setDisclaimerSeen: setDisclaimerSeenFn }}>
       {backendWarning ? (
-        <div className="border-b border-red-900/60 bg-red-950/70 px-4 py-2 text-center text-xs text-red-200">
-          ⚠️ {backendWarning}
+        <div className="flex flex-wrap items-center justify-center gap-2 border-b border-red-900/60 bg-red-950/70 px-4 py-2 text-center text-xs text-red-200">
+          <span>⚠️ {backendWarning}</span>
+          <button
+            onClick={checkHealth}
+            className="rounded-lg border border-red-800 px-2 py-0.5 font-medium hover:bg-red-900/40"
+          >
+            Retry now
+          </button>
         </div>
       ) : null}
       {children}

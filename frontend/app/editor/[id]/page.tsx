@@ -14,6 +14,9 @@ import ExportTab from "../../../components/tabs/ExportTab";
 
 type Tab = "templates" | "audio" | "bookend" | "preflight" | "export";
 
+/** Render statuses that are still working (the UI must keep polling these). */
+const ACTIVE_RENDER = ["queued", "compositing", "muxing", "preflight", "running"];
+
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -30,11 +33,23 @@ export default function EditorPage() {
   );
 
   const loadAnalysis = useCallback(async () => {
-    try {
-      const a = await api<Analysis>(`/api/jobs/${id}/analysis`);
-      setAnalysis(a);
-    } catch (e: any) {
-      setErr(e.message || "Could not load analysis");
+    // retry a couple of times: a dev-proxy reset is not a real failure
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const a = await api<Analysis>(`/api/jobs/${id}/analysis`);
+        setAnalysis(a);
+        setErr("");
+        return;
+      } catch (e: any) {
+        if (attempt === 2) {
+          setErr(
+            (e.message || "Could not load analysis") +
+              " — the backend on port 8000 may have stopped. Restart it with ./run.sh (or run.bat)."
+          );
+        } else {
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
     }
   }, [id]);
 
@@ -69,9 +84,11 @@ export default function EditorPage() {
     }
   }, [analysis, clips.length, id, loadClips, err]);
 
-  // poll renders while one is running
+  // poll renders while one is active. The backend reports
+  // queued → compositing → muxing → preflight → done|error ("running" was
+  // never emitted, so this used to never poll at all).
   useEffect(() => {
-    const running = renders.find((r) => r.status === "running");
+    const running = renders.find((r) => ACTIVE_RENDER.includes(r.status));
     if (!running) return;
     const iv = setInterval(async () => {
       try {
@@ -102,7 +119,7 @@ export default function EditorPage() {
     );
 
   const job = analysis.job;
-  const runningRender = renders.find((r) => r.status === "running");
+  const runningRender = renders.find((r) => ACTIVE_RENDER.includes(r.status));
 
   const patchClip = (patch: Record<string, any>) => {
     if (!sel) return;

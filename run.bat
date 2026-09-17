@@ -58,7 +58,7 @@ if not exist "frontend\node_modules" (
   call npm --prefix frontend install
 )
 echo [1/2] backend  -^> http://localhost:8000/api/health
-start "FairClip API" /D "%CD%" cmd /k "backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"
+start "FairClip API" /D "%CD%" cmd /k "backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75"
 echo [2/2] frontend -^> http://localhost:3000
 start "FairClip Web" /D "%CD%" cmd /k "npm --prefix frontend run dev"
 echo.
@@ -68,7 +68,7 @@ goto :eof
 
 :start_backend
 echo [1/1] backend -^> http://localhost:8000/api/health
-backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75
 goto :eof
 
 :start_web
